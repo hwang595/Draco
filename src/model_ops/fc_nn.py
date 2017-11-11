@@ -107,24 +107,36 @@ class FC_NN_Split(nn.Module):
                 output.backward(self.input[i+1].grad.data)
                 tmp_grad_weight = self.full_modules[mod_avail_index].weight.grad
                 tmp_grad_bias = self.full_modules[mod_avail_index].bias.grad
-                if not pd.isnull(tmp_grad_weight) and not pd.isnull(tmp_grad_bias):
-                    # we always send bias first
-                    if mod_counters_[mod_avail_index] == 0:
-                        grads = tmp_grad_bias.data.numpy().astype(np.float64)
-                        req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
-                        req_send_check.append(req_isend)
-                        channel_index-=1
-                        mod_counters_[mod_avail_index]+=1
-                    elif mod_counters_[mod_avail_index] == 1:
+                # specific for this fc nn setting
+                if mod_avail_index == len(self.full_modules)-1:
+                    if not pd.isnull(tmp_grad_weight):
                         grads = tmp_grad_weight.data.numpy().astype(np.float64)
                         req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                         req_send_check.append(req_isend)
-                        channel_index-=1
-                        mod_counters_[mod_avail_index]+=1
                         # update counters
                         mod_avail_index-=1
+                        channel_index-=1
+                    else:
+                        continue
                 else:
-                    continue
+                    if not pd.isnull(tmp_grad_weight) and not pd.isnull(tmp_grad_bias):
+                        # we always send bias first
+                        if mod_counters_[mod_avail_index] == 0:
+                            grads = tmp_grad_bias.data.numpy().astype(np.float64)
+                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            req_send_check.append(req_isend)
+                            channel_index-=1
+                            mod_counters_[mod_avail_index]+=1
+                        elif mod_counters_[mod_avail_index] == 1:
+                            grads = tmp_grad_weight.data.numpy().astype(np.float64)
+                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            req_send_check.append(req_isend)
+                            channel_index-=1
+                            mod_counters_[mod_avail_index]+=1
+                            # update counters
+                            mod_avail_index-=1
+                    else:
+                        continue
         if mod_counters_[0] == 1:
             req_send_check[-1].wait()
             grads = tmp_grad_weight.data.numpy().astype(np.float64)
