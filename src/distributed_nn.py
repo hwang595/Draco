@@ -12,7 +12,6 @@ from mpi4py import MPI
 import torch
 from torch.autograd import Variable
 from torch import nn
-from distributed_functions.distributed_backward import backward
 from torch.nn.parallel.replicate import replicate
 from torch.nn.parallel.scatter_gather import scatter_kwargs, gather
 from torch.nn.parallel.parallel_apply import parallel_apply

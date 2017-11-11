@@ -21,7 +21,7 @@ class Cfg(dict):
 
 cfg = Cfg({
     "name" : "Timeout",      # Unique name for this specific configuration
-    "key_name": "HongyiScript",          # Necessary to ssh into created instances
+    "key_name": "HongyiScript2",          # Necessary to ssh into created instances
     # Cluster topology
     "n_masters" : 1,                      # Should always be 1
     "n_workers" : 3,
@@ -31,15 +31,15 @@ cfg = Cfg({
     "region" : "us-west-2",
     "availability_zone" : "us-west-2b",
     # Machine type - instance type configuration.
-    "master_type" : "t2.large",
-    "worker_type" : "t2.large",
+    "master_type" : "m4.2xlarge",
+    "worker_type" : "m4.2xlarge",
     # please only use this AMI for pytorch
-    "image_id": "ami-1036c268",
+    "image_id": "ami-0a3df672",
     # Launch specifications
     "spot_price" : "0.8",                 # Has to be a string
     # SSH configuration
     "ssh_username" : "ubuntu",            # For sshing. E.G: ssh ssh_username@hostname
-    "path_to_keyfile" : "/home/hwang/My_Code/AWS/HongyiScript.pem",
+    "path_to_keyfile" : "/home/hwang/My_Code/AWS/HongyiScript2.pem",
 
     # NFS configuration
     # To set up these values, go to Services > ElasticFileSystem > Create new filesystem, and follow the directions.

@@ -7,6 +7,7 @@ from nn_ops import NN_Trainer
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
+from model_ops.fc_nn import FC_NN, FC_NN_Split
 
 import torch
 from torch.autograd import Variable
