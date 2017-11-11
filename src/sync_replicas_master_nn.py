@@ -94,7 +94,7 @@ class GradientAccumulator(object):
 			for j, buf in enumerate(tmp_aggregator):
 				self.gradient_aggregator[i][j] = np.zeros(self.gradient_aggregator[i][j].shape)
 
-class SyncReplicasMasterNormal_NN(NN_Trainer):
+class SyncReplicasMaster_NN(NN_Trainer):
 	def __init__(self, comm, **kwargs):
 		'''master node here, no rank needed since the rank will always be 0 for master node'''
 		self.comm = comm   # get MPI communicator object

@@ -67,7 +67,7 @@ class ModelBuffer(object):
             self.layer_cur_step.append(0)
 
 
-class DistributedWorkerNormal(NN_Trainer):
+class DistributedWorker(NN_Trainer):
     def __init__(self, comm, **kwargs):
         self.comm = comm   # get MPI communicator object
         self.world_size = comm.Get_size() # total number of processes
