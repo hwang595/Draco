@@ -32,7 +32,7 @@ class FC_NN(nn.Module):
 # we use LeNet here for our simple case
 class FC_NN_Split(nn.Module):
     def __init__(self):
-        super(FC_NN, self).__init__()
+        super(FC_NN_Split, self).__init__()
         self.fc1 = nn.Linear(784, 800)
         self.fc2 = nn.Linear(800, 500)
         self.fc3 = nn.Linear(500, 10)
@@ -79,6 +79,9 @@ class FC_NN_Split(nn.Module):
         x = self.sigmoid(x)
         self.output.append(x)
         return x
+    @property
+    def fetch_init_channel_index(self):
+        return self._init_channel_index
     def backward_normal(self, g, communicator, req_send_check, cur_step):
         mod_avail_index = len(self.full_modules)-1
         #channel_index = len(self.full_modules)*2-2
