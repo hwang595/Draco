@@ -8,7 +8,7 @@ from torch.autograd import Variable
 
 from mpi4py import MPI
 
-# we use LeNet here for our simple case
+# we use fc nn here for our simple case
 class FC_NN(nn.Module):
     def __init__(self):
         super(FC_NN, self).__init__()
@@ -29,7 +29,7 @@ class FC_NN(nn.Module):
     def name(self):
         return 'fc_nn'
 
-# we use LeNet here for our simple case
+# we use fc nn here for our simple case
 class FC_NN_Split(nn.Module):
     def __init__(self):
         super(FC_NN_Split, self).__init__()

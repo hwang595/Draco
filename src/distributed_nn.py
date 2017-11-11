@@ -41,6 +41,8 @@ def add_fit_args(parser):
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
+    parser.add_argument('--max-steps', type=int, default=10000, metavar='N',
+                        help='the maximum number of iterations')
     parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
@@ -91,7 +93,7 @@ if __name__ == "__main__":
         validation_set = Cifar10Dataset(dataset=cifar10_data.validation, transform=transforms.ToTensor())
 
 
-    kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
+    kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                 'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
 
