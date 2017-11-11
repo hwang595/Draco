@@ -96,8 +96,8 @@ class DistributedWorker(NN_Trainer):
             self.network=ResNetSplit18(self.kill_threshold)
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
-        elif self.network_config == "fc":
-            self.network=FC_NN()
+        elif self.network_config == "FC":
+            self.network=FC_NN_Split()
 
         # set up optimizer
         self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)

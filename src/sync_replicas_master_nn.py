@@ -128,8 +128,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		elif self.network_config == "ResNet34":
 			self.network=ResNetSplit34()
 		elif self.network_config == "FC":
-			self.network=FC_NN()
-		  
+			self.network=FC_NN_Split()
+		
 		# TODO(hwang): make sure this is useful
 		self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
 		# assign a gradient accumulator to collect gradients from workers
