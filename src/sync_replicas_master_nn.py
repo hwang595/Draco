@@ -10,6 +10,7 @@ from nn_ops import NN_Trainer
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
+from model_ops.fc_nn import FC_NN
 
 import torch
 
@@ -126,6 +127,8 @@ class SyncReplicasMasterNormal_NN(NN_Trainer):
 			self.network=ResNetSplit18(self._timeout_threshold)
 		elif self.network_config == "ResNet34":
 			self.network=ResNetSplit34()
+		elif self.network_config == "FC":
+			self.network=FC_NN()
 		  
 		# TODO(hwang): make sure this is useful
 		self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
