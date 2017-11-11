@@ -204,21 +204,21 @@ class DistributedWorker(NN_Trainer):
             # TODO(hwang): figure out the killing process in pytorch framework asap
 
             # on the end of a certain iteration
+            '''
             print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, FetchWeight: {:.4f}, Forward: {:.4f}, Backward: {:.4f}'.format(self.rank,
                     self.cur_step, epoch_idx, batch_idx * self.batch_size, self.batch_size*num_batch_per_epoch, 
                     (100. * (batch_idx * self.batch_size) / (self.batch_size*num_batch_per_epoch)), loss.data[0], time.time()-iter_start_time, fetch_weight_duration, forward_duration, backward_duration))
+            '''
             # calculate training accuracy
             '''
             if self.cur_step % 200 == 0:
                 print("Worker evaluating the model ... ")
                 self._evaluate_model(test_loader)
             '''
-            '''
             prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
             print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
                  self.cur_step, epoch_idx, batch_idx * self.batch_size, self.batch_size*num_batch_per_epoch, 
                     (100. * (batch_idx * self.batch_size) / (self.batch_size*num_batch_per_epoch)), loss.data[0], time.time()-iter_start_time, prec1.numpy()[0], prec5.numpy()[0]))
-            '''
 
     def init_recv_buf(self):
         self.model_recv_buf = ModelBuffer(self.network)

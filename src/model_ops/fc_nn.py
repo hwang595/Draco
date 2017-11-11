@@ -93,6 +93,7 @@ class FC_NN_Split(nn.Module):
                 # for last node, use g
                 output.backward(g)
                 # get gradient here after some sanity checks:
+                '''
                 tmp_grad = self.full_modules[mod_avail_index].weight.grad
                 if not pd.isnull(tmp_grad):
                     grads = tmp_grad.data.numpy().astype(np.float64)
@@ -103,6 +104,7 @@ class FC_NN_Split(nn.Module):
                     channel_index-=1
                 else:
                     continue
+                '''
             else:
                 output.backward(self.input[i+1].grad.data)
                 tmp_grad_weight = self.full_modules[mod_avail_index].weight.grad
@@ -142,6 +144,8 @@ class FC_NN_Split(nn.Module):
             grads = tmp_grad_weight.data.numpy().astype(np.float64)
             req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
             req_send_check.append(req_isend)
+#        if cur_step >= 2:
+#            exit()
         return req_send_check
     @property
     def name(self):
