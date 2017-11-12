@@ -186,9 +186,9 @@ class DistributedWorker(NN_Trainer):
                     init_grad_data = logits_1.grad.data.numpy()
                     init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
                     # send grad to parameter server
-                    if self.rank == self.world_size:
+                    if self.rank == self.world_size-1:
                         # simulate some byzantine error here:
-                        req_isend = self.comm.Isend([-1*init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                        req_isend = self.comm.Isend([-100*init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     else:
                         req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     req_send_check.append(req_isend)
