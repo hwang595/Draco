@@ -186,7 +186,11 @@ class DistributedWorker(NN_Trainer):
                     init_grad_data = logits_1.grad.data.numpy()
                     init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
                     # send grad to parameter server
-                    req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                    if self.rank == self.world_size:
+                        # simulate some byzantine error here:
+                        req_isend = self.comm.Isend([-1*init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                    else:
+                        req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     req_send_check.append(req_isend)
                     
                     req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, cur_step=self.cur_step)
@@ -197,8 +201,8 @@ class DistributedWorker(NN_Trainer):
                     # on the end of a certain iteration
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                     print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
-                         self.cur_step, epoch_idx, batch_idx * self.batch_size, self.batch_size*num_batch_per_epoch, 
-                            (100. * (batch_idx * self.batch_size) / (self.batch_size*num_batch_per_epoch)), loss.data[0], time.time()-iter_start_time, prec1.numpy()[0], prec5.numpy()[0]))
+                         self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
+                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, prec1.numpy()[0], prec5.numpy()[0]))
                     # break here to fetch data then enter fetching step loop again
                     break
                 '''

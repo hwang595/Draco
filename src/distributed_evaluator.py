@@ -14,6 +14,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
 
 #for tmp solution
 from mnist import mnist

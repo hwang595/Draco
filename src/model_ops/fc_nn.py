@@ -113,7 +113,12 @@ class FC_NN_Split(nn.Module):
                 if mod_avail_index == len(self.full_modules)-1:
                     if not pd.isnull(tmp_grad_weight):
                         grads = tmp_grad_weight.data.numpy().astype(np.float64)
-                        req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                        ############################### simulation here #########################################
+                        if communicator.Get_rank() == communicator.Get_size():
+                            req_isend = communicator.Isend([-1*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                        else:
+                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                        #########################################################################################
                         req_send_check.append(req_isend)
                         # update counters
                         mod_avail_index-=1
@@ -125,13 +130,23 @@ class FC_NN_Split(nn.Module):
                         # we always send bias first
                         if mod_counters_[mod_avail_index] == 0:
                             grads = tmp_grad_bias.data.numpy().astype(np.float64)
-                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            ############################### simulation here #########################################
+                            if communicator.Get_rank() == communicator.Get_size():
+                                req_isend = communicator.Isend([-1*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            else:
+                                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            #########################################################################################
                             req_send_check.append(req_isend)
                             channel_index-=1
                             mod_counters_[mod_avail_index]+=1
                         elif mod_counters_[mod_avail_index] == 1:
                             grads = tmp_grad_weight.data.numpy().astype(np.float64)
-                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            ############################### simulation here #########################################
+                            if communicator.Get_rank() == communicator.Get_size():
+                                req_isend = communicator.Isend([-1*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            else:
+                                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            #########################################################################################
                             req_send_check.append(req_isend)
                             channel_index-=1
                             mod_counters_[mod_avail_index]+=1
@@ -142,7 +157,12 @@ class FC_NN_Split(nn.Module):
         if mod_counters_[0] == 1:
             req_send_check[-1].wait()
             grads = tmp_grad_weight.data.numpy().astype(np.float64)
-            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+            ############################### simulation here #########################################
+            if communicator.Get_rank() == communicator.Get_size():
+                req_isend = communicator.Isend([-1*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+            else:
+                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+            #########################################################################################
             req_send_check.append(req_isend)
 #        if cur_step >= 2:
 #            exit()
