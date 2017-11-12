@@ -11,7 +11,6 @@ from torch.cuda.comm import broadcast_coalesced
 from torch.cuda import nccl
 
 import torch.nn as nn
-from distributed_functions.distributed_backward import backward
 from torch.nn.parallel.replicate import replicate
 from torch.nn.parallel.scatter_gather import scatter_kwargs, gather
 from torch.nn.parallel.parallel_apply import parallel_apply

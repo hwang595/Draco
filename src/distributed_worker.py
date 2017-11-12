@@ -7,6 +7,7 @@ from nn_ops import NN_Trainer
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
+from model_ops.fc_nn import FC_NN, FC_NN_Split
 
 import torch
 from torch.autograd import Variable
@@ -67,7 +68,7 @@ class ModelBuffer(object):
             self.layer_cur_step.append(0)
 
 
-class DistributedWorkerNormal(NN_Trainer):
+class DistributedWorker(NN_Trainer):
     def __init__(self, comm, **kwargs):
         self.comm = comm   # get MPI communicator object
         self.world_size = comm.Get_size() # total number of processes
@@ -96,6 +97,8 @@ class DistributedWorkerNormal(NN_Trainer):
             self.network=ResNetSplit18(self.kill_threshold)
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
+        elif self.network_config == "FC":
+            self.network=FC_NN_Split()
 
         # set up optimizer
         self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
