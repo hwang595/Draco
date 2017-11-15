@@ -116,8 +116,7 @@ class FC_NN_Split(nn.Module):
                         ############################### simulation here #########################################
                         if communicator.Get_rank() == communicator.Get_size()-1 or\
                             communicator.Get_rank() == communicator.Get_size()-2 or\
-                            communicator.Get_rank() == communicator.Get_size()-3 or\
-                            communicator.Get_rank() == communicator.Get_size()-4:
+                            communicator.Get_rank() == communicator.Get_size()-3:
                             req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                         else:
                             req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -136,8 +135,7 @@ class FC_NN_Split(nn.Module):
                             ############################### simulation here #########################################
                             if communicator.Get_rank() == communicator.Get_size()-1 or\
                                 communicator.Get_rank() == communicator.Get_size()-2 or\
-                                communicator.Get_rank() == communicator.Get_size()-3 or\
-                                communicator.Get_rank() == communicator.Get_size()-4:
+                                communicator.Get_rank() == communicator.Get_size()-3:
                                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
                                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -150,8 +148,7 @@ class FC_NN_Split(nn.Module):
                             ############################### simulation here #########################################
                             if communicator.Get_rank() == communicator.Get_size()-1 or\
                                 communicator.Get_rank() == communicator.Get_size()-2 or\
-                                communicator.Get_rank() == communicator.Get_size()-3 or\
-                                communicator.Get_rank() == communicator.Get_size()-4:
+                                communicator.Get_rank() == communicator.Get_size()-3:
                                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
                                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -169,8 +166,7 @@ class FC_NN_Split(nn.Module):
             ############################### simulation here #########################################
             if communicator.Get_rank() == communicator.Get_size()-1 or\
                 communicator.Get_rank() == communicator.Get_size()-2 or\
-                communicator.Get_rank() == communicator.Get_size()-3 or\
-                communicator.Get_rank() == communicator.Get_size()-4:
+                communicator.Get_rank() == communicator.Get_size()-3:
                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
             else:
                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
