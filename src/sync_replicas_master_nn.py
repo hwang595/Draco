@@ -11,6 +11,7 @@ from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
+import hdmedians as hd
 
 import torch
 
@@ -20,6 +21,7 @@ def update_params_dist_version(param, avg_grad, learning_rate):
 	'''
 	update the network layer by layer
 	'''
+	avg_grad = avg_grad.reshape(param.shape)
 	assert param.shape == avg_grad.shape
 	param -= learning_rate * avg_grad
 	return param
@@ -111,9 +113,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		self._train_dir = kwargs['train_dir']
 		self._expected_grad_to_recv = kwargs['kill_threshold']
 		self._max_steps = kwargs['max_steps']
-		
-
-		############ will be deprecated soon #############################
+		self._update_mode = kwargs['update_mode']
 		self._eval_batch_size = 1000
 
 	def build_model(self):
@@ -178,7 +178,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
 					############################ only for temp test ###################################
 					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._expected_grad_to_recv:
 						self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
-					#self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
 
 					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
 					
@@ -189,12 +188,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
 				for j in self.grad_accumulator.gradient_aggregate_counter:
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
 
-			grad_gather_duration = time.time()-grad_gather_start_time
-			print("Master: gradient gather time: {:.4f}".format(grad_gather_duration))
-			# average gradients and update the mode
-			for i in range(len(self._grad_aggregate_buffer)):
-				#self._grad_aggregate_buffer[i] /= self._num_grad_to_collect
-				self._grad_aggregate_buffer[i] /= self._expected_grad_to_recv
+			if self._update_mode == "normal":
+				self._avg_received_grads()
+			elif self._update_mode == "geometric_median":
+				self._get_geo_median()
 
 			# update using SGD method
 			tmp_module = []
@@ -217,7 +214,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
 	def init_model_shapes(self):
 		for param_idx, param in enumerate(self.network.parameters()):
 			self._model_shapes.append(param.size())
-			self._grad_aggregate_buffer.append(np.zeros(param.size()))
+			if self._update_mode == "normal":
+				self._grad_aggregate_buffer.append(np.zeros(param.size()))
+			elif self._update_mode == "geometric_median":
+				self._grad_aggregate_buffer.append([])
 
 	def async_bcast_step(self):
 		req_list = []
@@ -252,12 +252,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			#	if i != 0:
 			# try to see if collective communication is better here:
 			self.comm.Bcast([layer_to_send, MPI.DOUBLE], root=0)
-			#request_layers.append(request_workers)
-		# TODO(hwang): check to see if these `wait` calls are necessary here
-		#for req_l in request_layers:
-		#	for req_worker in req_l:
-		#		req_worker.wait()
-
 
 	def async_fetch_gradient_start(self):
 		'''make gradient fetch requests and return the request list'''
@@ -272,7 +266,14 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
 	def aggregate_gradient(self, gradient, layer_idx):
 		'''keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`'''
-		self._grad_aggregate_buffer[layer_idx] += gradient
+		if self._update_mode == "normal":
+			self._grad_aggregate_buffer[layer_idx] += gradient
+		elif self._update_mode == "geometric_median":
+			shape = gradient.shape
+			if len(shape) == 1:
+				self._grad_aggregate_buffer[layer_idx].append(gradient)				
+			elif len(shape) == 2:
+				self._grad_aggregate_buffer[layer_idx].append([gradient.reshape((gradient.shape[0]*gradient.shape[1],)), shape])
 
 	def model_update(self, tmp_module):
 		"""write model fetched from parameter server to local model"""
@@ -291,7 +292,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
 	def meset_grad_buffer(self):
 		for i in range(len(self._grad_aggregate_buffer)):
-			self._grad_aggregate_buffer[i] = np.zeros(self._grad_aggregate_buffer[i].shape)
+			if self._update_mode == "normal":
+				self._grad_aggregate_buffer[i] = np.zeros(self._grad_aggregate_buffer[i].shape)
+			elif self._update_mode == "geometric_median":
+				self._grad_aggregate_buffer[i] = []
 
 	def _generate_model_path(self):
 		return self._train_dir+"model_step_"+str(self.cur_step)
@@ -317,3 +321,12 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		prec5 = prec5_counter_ / batch_counter_
 		self._epoch_counter = validation_loader.dataset.epochs_completed
 		print('Testset Performance: Cur Step:{} Prec@1: {} Prec@5: {}'.format(self.cur_step, prec1.numpy()[0], prec5.numpy()[0]))
+
+	def _avg_received_grads(self):
+		for i in range(len(self._grad_aggregate_buffer)):
+			self._grad_aggregate_buffer[i] /= self._expected_grad_to_recv
+
+	def _get_geo_median(self):
+		for g_idx, grads in enumerate(self._grad_aggregate_buffer):
+			geo_median = np.array(hd.geomedian(np.array(grads[0]), axis=0))
+			self._grad_aggregate_buffer[g_idx] = geo_median.reshape(grads[1])

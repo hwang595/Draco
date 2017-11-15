@@ -58,7 +58,7 @@ def add_fit_args(parser):
     parser.add_argument('--network', type=str, default='LeNet', metavar='N',
                         help='which kind of network we are going to use, support LeNet and ResNet currently')
     parser.add_argument('--mode', type=str, default='normal', metavar='N',
-                        help='determine if we kill the stragglers or just implement normal training')
+                        help='determine if we use normal averaged gradients or geometric median to udpate the model')
     parser.add_argument('--kill-threshold', type=float, default=7.0, metavar='KT',
                         help='timeout threshold which triggers the killing process (default: 7s)')
     parser.add_argument('--dataset', type=str, default='MNIST', metavar='N',
@@ -71,6 +71,8 @@ def add_fit_args(parser):
                         help='it determines per how many step the model should be evaluated')
     parser.add_argument('--train-dir', type=str, default='output/models/', metavar='N',
                         help='directory to save the temp model during the training process for evaluation')
+    parser.add_argument('--adversarial', type=int, default=1, metavar='N',
+                        help='how much adversary we want to add to a certain worker')
     args = parser.parse_args()
     return args
 
@@ -107,10 +109,10 @@ if __name__ == "__main__":
 
     kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                 'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
+                'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
 
     kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold}
+                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial}
 
     if rank == 0:
         master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)

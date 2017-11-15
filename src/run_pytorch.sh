@@ -6,9 +6,10 @@ python distributed_nn.py \
 --batch-size=128 \
 --comm-type=Bcast \
 --num-aggregate=4 \
---mode=normal \
+--mode=geometric_median \ \
 --kill-threshold=6.8 \
 --eval-freq=200 \
 --epochs=50 \
+--adversarial=100 \
 --max-steps=1000000 \
 --train-dir=/home/ubuntu/
