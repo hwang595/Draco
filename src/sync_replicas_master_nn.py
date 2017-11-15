@@ -273,7 +273,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			if len(shape) == 1:
 				self._grad_aggregate_buffer[layer_idx].append(gradient)				
 			elif len(shape) == 2:
-				self._grad_aggregate_buffer[layer_idx].append([gradient.reshape((gradient.shape[0]*gradient.shape[1],)), shape])
+				self._grad_aggregate_buffer[layer_idx].append(gradient.reshape((gradient.shape[0]*gradient.shape[1],)))
 
 	def model_update(self, tmp_module):
 		"""write model fetched from parameter server to local model"""
@@ -328,5 +328,5 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
 	def _get_geo_median(self):
 		for g_idx, grads in enumerate(self._grad_aggregate_buffer):
-			geo_median = np.array(hd.geomedian(np.array(grads[0]), axis=0))
-			self._grad_aggregate_buffer[g_idx] = geo_median.reshape(grads[1])
+			geo_median = np.array(hd.geomedian(np.array(grads), axis=0))
+			self._grad_aggregate_buffer[g_idx] = geo_median
