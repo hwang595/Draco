@@ -26,9 +26,7 @@ from distributed_worker import *
 from sync_replicas_master_nn import *
 
 #for tmp solution
-from mnist import mnist
 from datasets import MNISTDataset
-from cifar10 import cifar10
 from datasets import Cifar10Dataset
 
 def add_fit_args(parser):
