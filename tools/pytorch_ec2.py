@@ -24,7 +24,7 @@ cfg = Cfg({
     "key_name": "HongyiScript2",          # Necessary to ssh into created instances
     # Cluster topology
     "n_masters" : 1,                      # Should always be 1
-    "n_workers" : 3,
+    "n_workers" : 45,
     "num_replicas_to_aggregate" : "8",
     "method" : "reserved",
     # Region speficiation
@@ -34,7 +34,7 @@ cfg = Cfg({
     "master_type" : "m4.2xlarge",
     "worker_type" : "m4.2xlarge",
     # please only use this AMI for pytorch
-    "image_id": "ami-0a3df672",
+    "image_id": "ami-d270a1aa",
     # Launch specifications
     "spot_price" : "0.8",                 # Has to be a string
     # SSH configuration
