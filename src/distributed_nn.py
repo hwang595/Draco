@@ -73,6 +73,8 @@ def add_fit_args(parser):
                         help='directory to save the temp model during the training process for evaluation')
     parser.add_argument('--adversarial', type=int, default=1, metavar='N',
                         help='how much adversary we want to add to a certain worker')
+    parser.add_argument('--worker-fail', type=int, default=2, metavar='N',
+                        help='how many number of worker nodes we want to simulate byzantine error on')
     args = parser.parse_args()
     return args
 
@@ -112,7 +114,7 @@ if __name__ == "__main__":
                 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
 
     kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial}
+                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail}
 
     if rank == 0:
         master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)

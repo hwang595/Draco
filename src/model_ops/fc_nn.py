@@ -82,7 +82,7 @@ class FC_NN_Split(nn.Module):
     @property
     def fetch_init_channel_index(self):
         return self._init_channel_index
-    def backward_normal(self, g, communicator, req_send_check, cur_step, adv):
+    def backward_normal(self, g, communicator, req_send_check, cur_step, adv, fail_workers):
         mod_avail_index = len(self.full_modules)-1
         #channel_index = len(self.full_modules)*2-2
         channel_index = self._init_channel_index - 2
@@ -114,9 +114,7 @@ class FC_NN_Split(nn.Module):
                     if not pd.isnull(tmp_grad_weight):
                         grads = tmp_grad_weight.data.numpy().astype(np.float64)
                         ############################### simulation here #########################################
-                        if communicator.Get_rank() == communicator.Get_size()-1 or\
-                            communicator.Get_rank() == communicator.Get_size()-2 or\
-                            communicator.Get_rank() == communicator.Get_size()-3:
+                        if communicator.Get_rank() in fail_workers:
                             req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                         else:
                             req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -133,9 +131,7 @@ class FC_NN_Split(nn.Module):
                         if mod_counters_[mod_avail_index] == 0:
                             grads = tmp_grad_bias.data.numpy().astype(np.float64)
                             ############################### simulation here #########################################
-                            if communicator.Get_rank() == communicator.Get_size()-1 or\
-                                communicator.Get_rank() == communicator.Get_size()-2 or\
-                                communicator.Get_rank() == communicator.Get_size()-3:
+                            if communicator.Get_rank() in fail_workers:
                                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
                                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -146,9 +142,7 @@ class FC_NN_Split(nn.Module):
                         elif mod_counters_[mod_avail_index] == 1:
                             grads = tmp_grad_weight.data.numpy().astype(np.float64)
                             ############################### simulation here #########################################
-                            if communicator.Get_rank() == communicator.Get_size()-1 or\
-                                communicator.Get_rank() == communicator.Get_size()-2 or\
-                                communicator.Get_rank() == communicator.Get_size()-3:
+                            if communicator.Get_rank() in fail_workers:
                                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
                                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
@@ -164,9 +158,7 @@ class FC_NN_Split(nn.Module):
             req_send_check[-1].wait()
             grads = tmp_grad_weight.data.numpy().astype(np.float64)
             ############################### simulation here #########################################
-            if communicator.Get_rank() == communicator.Get_size()-1 or\
-                communicator.Get_rank() == communicator.Get_size()-2 or\
-                communicator.Get_rank() == communicator.Get_size()-3:
+            if communicator.Get_rank() in fail_workers:
                 req_isend = communicator.Isend([adv*grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
             else:
                 req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)

@@ -11,4 +11,5 @@ python distributed_nn.py \
 --epochs=50 \
 --adversarial=-100 \
 --max-steps=1000000 \
+--worker-fail=4 \
 --train-dir=/home/ubuntu/

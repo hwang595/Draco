@@ -85,6 +85,7 @@ class DistributedWorker(NN_Trainer):
         self.comm_type = kwargs['comm_method']
         self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
+        self._fail_workers = [self.world_size-i for i in range(1, args.worker_fail)]
         self._eval_batch_size = 100
 
         # this one is going to be used to avoid fetch the weights for multiple times
@@ -187,14 +188,14 @@ class DistributedWorker(NN_Trainer):
                     init_grad_data = logits_1.grad.data.numpy()
                     init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
                     # send grad to parameter server
-                    if self.rank == self.world_size-1 or self.rank == self.world_size-2 or self.rank == self.world_size-3:
+                    if self.rank in self._fail_workers:
                         # simulate some byzantine error here:
                         req_isend = self.comm.Isend([self._adversery*init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     else:
                         req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     req_send_check.append(req_isend)
                     
-                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, cur_step=self.cur_step, adv=self._adversery)
+                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, cur_step=self.cur_step, adv=self._adversery, fail_workers=self._fail_workers)
                     req_send_check[-1].wait()
 
                     backward_duration = time.time()-backward_start_time
