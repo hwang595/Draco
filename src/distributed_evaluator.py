@@ -17,9 +17,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 #for tmp solution
-from mnist import mnist
 from datasets import MNISTDataset
-from cifar10 import cifar10
 from datasets import Cifar10Dataset
 
 def accuracy(output, target, topk=(1,)):
