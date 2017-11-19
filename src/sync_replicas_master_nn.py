@@ -327,6 +327,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			self._grad_aggregate_buffer[i] /= self._expected_grad_to_recv
 
 	def _get_geo_median(self):
+		geo_median_start = time.time()
 		for g_idx, grads in enumerate(self._grad_aggregate_buffer):
 			geo_median = np.array(hd.geomedian(np.array(grads), axis=0))
 			self._grad_aggregate_buffer[g_idx] = geo_median
+		print("Master Step: {} Found Geo Median Cost: {:.4f}".format(self.cur_step, time.time()-geo_median_start))
