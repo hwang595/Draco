@@ -63,6 +63,8 @@ def add_fit_args(parser):
                         help='which dataset used in training, MNIST and Cifar10 supported currently')
     parser.add_argument('--comm-type', type=str, default='Bcast', metavar='N',
                         help='which kind of method we use during the mode fetching stage')
+    parser.add_argument('--err-mode', type=str, default='rev_grad', metavar='N',
+                        help='which type of byzantine err we are going to simulate rev_grad/constant/random are supported')
     parser.add_argument('--num-aggregate', type=int, default=5, metavar='N',
                         help='how many number of gradients we wish to gather at each iteration')
     parser.add_argument('--eval-freq', type=int, default=50, metavar='N',
@@ -112,13 +114,14 @@ if __name__ == "__main__":
                 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
 
     kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail}
+                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
+                'err_mode':args.err_mode}
 
     if rank == 0:
         master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
         master_fc_nn.build_model()
         print("I am the master: the world size is {}, cur step: {}".format(master_fc_nn.world_size, master_fc_nn.cur_step))
-        master_fc_nn.train()
+        master_fc_nn.start()
         print("Done sending messages to workers!")
     else:
         worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)

@@ -8,6 +8,7 @@ from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
+from model_ops.utils import err_simulation
 
 import torch
 from torch.autograd import Variable
@@ -85,6 +86,7 @@ class DistributedWorker(NN_Trainer):
         self.comm_type = kwargs['comm_method']
         self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
+        self._err_mode = kwargs['err_mode']
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
         self._eval_batch_size = 100
 
@@ -165,10 +167,8 @@ class DistributedWorker(NN_Trainer):
 
                     # switch to training mode
                     self.network.train()
-                    #self._epoch_counter = test_loader.dataset.epochs_completed
                     # manage batch index manually
                     self.optimizer.zero_grad()
-
                     # forward step
                     forward_start_time = time.time()
                     logits = self.network(X_batch)
@@ -191,12 +191,14 @@ class DistributedWorker(NN_Trainer):
                     # send grad to parameter server
                     if self.rank in self._fail_workers:
                         # simulate some byzantine error here:
-                        req_isend = self.comm.Isend([self._adversery*init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                        simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
+                        req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     else:
                         req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     req_send_check.append(req_isend)
                     
-                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, cur_step=self.cur_step, adv=self._adversery, fail_workers=self._fail_workers)
+                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, 
+                                    cur_step=self.cur_step, fail_workers=self._fail_workers, err_mode=self._err_mode)
                     req_send_check[-1].wait()
 
                     backward_duration = time.time()-backward_start_time
