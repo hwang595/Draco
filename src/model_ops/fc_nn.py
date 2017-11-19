@@ -8,7 +8,7 @@ from torch.autograd import Variable
 
 from mpi4py import MPI
 
-from utils import grad_simulation
+from utils import err_simulation
 
 # we use fc nn here for our simple case
 class FC_NN(nn.Module):

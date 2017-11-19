@@ -3,7 +3,7 @@ import numpy as np
 ADVERSARY_=-100
 CONST_ = -10
 
-def grad_simulation(grad, mode):
+def err_simulation(grad, mode):
 	if mode == "rev_grad":
 		return ADVERSARY_*grad
 	elif mode == "constant":
