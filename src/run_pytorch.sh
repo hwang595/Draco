@@ -7,10 +7,12 @@ python distributed_nn.py \
 --comm-type=Bcast \
 --num-aggregate=4 \
 --mode=geometric_median \
+--coding-method=maj_vote \
 --eval-freq=200 \
 --epochs=50 \
 --err-mode=constant \
 --adversarial=-100 \
 --max-steps=1000000 \
 --worker-fail=4 \
+--group-size=5 \
 --train-dir=/home/ubuntu/

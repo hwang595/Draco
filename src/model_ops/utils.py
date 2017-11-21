@@ -1,7 +1,7 @@
 import numpy as np
 
 ADVERSARY_=-100
-CONST_ = -10
+CONST_ = -100
 
 def err_simulation(grad, mode):
 	if mode == "rev_grad":

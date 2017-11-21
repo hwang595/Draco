@@ -29,6 +29,16 @@ from sync_replicas_master_nn import *
 from datasets import MNISTDataset
 from datasets import Cifar10Dataset
 
+def _group_assign(world_size, group_size):
+    '''
+    split N worker nodes into k=N/S groups
+    '''
+    # sanity check we assume world size is divisable by group size
+    assert world_size % group_size == 0
+    k = world_size/group_size
+    return [[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
+
+
 def add_fit_args(parser):
     """
     parser : argparse.ArgumentParser
@@ -65,6 +75,8 @@ def add_fit_args(parser):
                         help='which kind of method we use during the mode fetching stage')
     parser.add_argument('--err-mode', type=str, default='rev_grad', metavar='N',
                         help='which type of byzantine err we are going to simulate rev_grad/constant/random are supported')
+    parser.add_argument('--coding-method', type=str, default='maj_vote', metavar='N',
+                        help='method used to achieve byzantine tolerence, currently majority vote is supported set to normal will return to normal mode')
     parser.add_argument('--num-aggregate', type=int, default=5, metavar='N',
                         help='how many number of gradients we wish to gather at each iteration')
     parser.add_argument('--eval-freq', type=int, default=50, metavar='N',
@@ -75,6 +87,8 @@ def add_fit_args(parser):
                         help='how much adversary we want to add to a certain worker')
     parser.add_argument('--worker-fail', type=int, default=2, metavar='N',
                         help='how many number of worker nodes we want to simulate byzantine error on')
+    parser.add_argument('--group-size', type=int, default=5, metavar='N',
+                        help='in majority vote how many worker nodes are in a certain group')
     args = parser.parse_args()
     return args
 
@@ -108,24 +122,33 @@ if __name__ == "__main__":
                        transforms.ToTensor()
                    ])), batch_size=args.test_batch_size, shuffle=True)
 
+    if args.coding_method == "normal":
+        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
+                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
 
-    kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
-                'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
+        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode}
 
-    kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                'err_mode':args.err_mode}
+        if rank == 0:
+            master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
+            master_fc_nn.build_model()
+            print("I am the master: the world size is {}, cur step: {}".format(master_fc_nn.world_size, master_fc_nn.cur_step))
+            master_fc_nn.start()
+            print("Done sending messages to workers!")
+        else:
+            worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
+            worker_fc_nn.build_model()
+            print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
+            worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
+            print("Now the next step is: {}".format(worker_fc_nn.next_step))
+    elif args.coding_method == "maj_vote":
+        group_list=_group_assign(world_size-1, group_size)
+        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
+                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list}
 
-    if rank == 0:
-        master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
-        master_fc_nn.build_model()
-        print("I am the master: the world size is {}, cur step: {}".format(master_fc_nn.world_size, master_fc_nn.cur_step))
-        master_fc_nn.start()
-        print("Done sending messages to workers!")
-    else:
-        worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
-        worker_fc_nn.build_model()
-        print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
-        worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
-        print("Now the next step is: {}".format(worker_fc_nn.next_step))
+        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode, 'group_list':group_list}
