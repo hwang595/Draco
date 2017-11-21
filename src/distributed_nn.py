@@ -38,6 +38,8 @@ def _group_assign(world_size, group_size, rank):
     k = world_size/group_size
     group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
     group_seeds = [0]*k
+    if rank == 0:
+        return group_list, -1, group_seeds
     for i,group in enumerate(group_list):
         group_seeds[i] = np.random.randint(0, 20000)
         if rank in group:
@@ -61,7 +63,7 @@ def _load_data(dataset, seed):
                                                 download=True, transform=transforms.ToTensor())
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
                                                   shuffle=True)
-
+    return train_loader
 
 def add_fit_args(parser):
     """
@@ -145,8 +147,7 @@ if __name__ == "__main__":
             worker_fc_nn.train(train_loader=train_loader)
             print("Now the next step is: {}".format(worker_fc_nn.next_step))
     elif args.coding_method == "maj_vote":
-        group_list, group_num, group_seeds=_group_assign(world_size-1, group_size)
-        train_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
+        group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list}
@@ -156,7 +157,9 @@ if __name__ == "__main__":
         if rank == 0:
             pass
         else:
+            train_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
                 print("I'm worker: {}".format(rank))
-                print(train_label_batch.numpy()[0])
+                print(train_image_batch.numpy()[0])
                 print('==========================================================================')
+                exit()
