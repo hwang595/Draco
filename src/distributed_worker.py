@@ -88,7 +88,6 @@ class DistributedWorker(NN_Trainer):
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
-        self._eval_batch_size = 100
 
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
@@ -112,7 +111,7 @@ class DistributedWorker(NN_Trainer):
         #self._param_idx = len(self.network.full_modules)*2-1
         self._param_idx = self.network.fetch_init_channel_index-1
 
-    def train(self, train_loader, test_loader):
+    def train(self, train_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure the value we fetched from parameter server is 1
         self.sync_fetch_step()
@@ -303,6 +302,33 @@ class DistributedWorker(NN_Trainer):
         prec5 = prec5_counter_ / batch_counter_
         test_loss /= len(test_loader.dataset)
         print('Test set: Average loss: {:.4f}, Prec@1: {} Prec@5: {}'.format(test_loss, prec1, prec5))
+
+class CodedWorker(DistributedWorker):
+    def __init__(self, comm, **kwargs):
+        self.comm = comm   # get MPI communicator object
+        self.world_size = comm.Get_size() # total number of processes
+        self.rank = comm.Get_rank() # rank of this Worker
+        #self.status = MPI.Status()
+        self.cur_step = 0
+        self.next_step = 0 # we will fetch this one from parameter server
+
+        self.batch_size = kwargs['batch_size']
+        self.max_epochs = kwargs['max_epochs']
+        self.momentum = kwargs['momentum']
+        self.lr = kwargs['learning_rate']
+        self.network_config = kwargs['network']
+        self.comm_type = kwargs['comm_method']
+        self.kill_threshold = kwargs['kill_threshold']
+        self._adversery = kwargs['adversery']
+        self._err_mode = kwargs['err_mode']
+        self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
+
+        self._group_list = kwargs['group_list']
+        # this one is going to be used to avoid fetch the weights for multiple times
+        self._layer_cur_step = []
+
+
+
 
 if __name__ == "__main__":
     # this is only a simple test case

@@ -29,14 +29,38 @@ from sync_replicas_master_nn import *
 from datasets import MNISTDataset
 from datasets import Cifar10Dataset
 
-def _group_assign(world_size, group_size):
+def _group_assign(world_size, group_size, rank):
     '''
     split N worker nodes into k=N/S groups
     '''
     # sanity check we assume world size is divisable by group size
     assert world_size % group_size == 0
     k = world_size/group_size
-    return [[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
+    group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
+    group_seeds = [0]*k
+    for i,group in enumerate(group_list):
+        group_seeds[i] = np.random.randint(0, 20000)
+        if rank in group:
+            group_num = i
+    return group_list, group_num, group_seeds
+
+
+def _load_data(dataset, seed):
+    if seed:
+        # in normal method we do not implement random seed here
+        # same group should share the same shuffling result
+        torch.manual_seed(seed)
+    if dataset == "MNIST":
+        training_set = datasets.MNIST('../data', train=True, download=True,
+                   transform=transforms.Compose([
+                       transforms.ToTensor(),
+                       transforms.Normalize((0.1307,), (0.3081,))]))
+        train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+    elif dataset == "Cifar10":
+        trainset = datasets.CIFAR10(root='./cifar10_data', train=True,
+                                                download=True, transform=transforms.ToTensor())
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                                  shuffle=True)
 
 
 def add_fit_args(parser):
@@ -100,37 +124,14 @@ if __name__ == "__main__":
 
     args = add_fit_args(argparse.ArgumentParser(description='PyTorch MNIST Single Machine Test'))
 
-    # load training and test set here:
-    if args.dataset == "MNIST":
-        training_set = datasets.MNIST('../data', train=True, download=True,
-                   transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))]))
-        train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))
-                   ])), batch_size=args.test_batch_size, shuffle=True)
-    elif args.dataset == "Cifar10":
-        trainset = datasets.CIFAR10(root='./cifar10_data', train=True,
-                                                download=True, transform=transforms.ToTensor())
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                                  shuffle=True)
-        test_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('./cifar10_data', train=False, transform=transforms.Compose([
-                       transforms.ToTensor()
-                   ])), batch_size=args.test_batch_size, shuffle=True)
-
     if args.coding_method == "normal":
+        train_loader = _load_data(dataset=args.dataset, seed=None)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
-
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode}
-
         if rank == 0:
             master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
@@ -141,14 +142,21 @@ if __name__ == "__main__":
             worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
-            worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
+            worker_fc_nn.train(train_loader=train_loader)
             print("Now the next step is: {}".format(worker_fc_nn.next_step))
     elif args.coding_method == "maj_vote":
-        group_list=_group_assign(world_size-1, group_size)
+        group_list, group_num, group_seeds=_group_assign(world_size-1, group_size)
+        train_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list}
-
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list}
+        if rank == 0:
+            pass
+        else:
+            for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
+                print("I'm worker: {}".format(rank))
+                print(train_label_batch.numpy()[0])
+                print('==========================================================================')
