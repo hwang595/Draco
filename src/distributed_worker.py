@@ -57,9 +57,6 @@ class ModelBuffer(object):
         self.recv_buf = []
         self.layer_cur_step = []
         '''initialize space to receive model from parameter server'''
-        #for key_name, param in network.state_dict().items():
-        #    self.recv_buf.append(np.zeros(param.size()))
-        #    self.layer_cur_step.append(0)
 
         # consider we don't want to update the param of `BatchNorm` layer right now
         # we temporirially deprecate the foregoing version and only update the model
@@ -162,7 +159,6 @@ class DistributedWorker(NN_Trainer):
                         self.async_fetch_weights_async()
 
                     fetch_weight_duration = time.time() - fetch_weight_start_time
-                    time_point_log = datetime.now()
 
                     # switch to training mode
                     self.network.train()
@@ -199,9 +195,7 @@ class DistributedWorker(NN_Trainer):
                     req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, 
                                     cur_step=self.cur_step, fail_workers=self._fail_workers, err_mode=self._err_mode)
                     req_send_check[-1].wait()
-
                     backward_duration = time.time()-backward_start_time
-
                     # on the end of a certain iteration
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                     print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
@@ -209,12 +203,6 @@ class DistributedWorker(NN_Trainer):
                             (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
                     # break here to fetch data then enter fetching step loop again
                     break
-                '''
-                prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
-                print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
-                     self.cur_step, epoch_idx, batch_idx * self.batch_size, self.batch_size*num_batch_per_epoch, 
-                        (100. * (batch_idx * self.batch_size) / (self.batch_size*num_batch_per_epoch)), loss.data[0], time.time()-iter_start_time, prec1.numpy()[0], prec5.numpy()[0]))
-                '''
 
     def init_recv_buf(self):
         self.model_recv_buf = ModelBuffer(self.network)
@@ -324,11 +312,126 @@ class CodedWorker(DistributedWorker):
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
 
         self._group_list = kwargs['group_list']
+        self._group_seeds = kwargs['group_seeds']
+        self._group_num = kwargs['group_num']
+        self._group_size = len(self._group_list[0])
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
 
+    def train(self, train_loader):
+        # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
+        # we still need to make sure the value we fetched from parameter server is 1
+        self.sync_fetch_step()
+        # do some sync check here
+        assert(self.update_step())
+        assert(self.cur_step == STEP_START_)
 
+        # number of batches in one epoch
+        num_batch_per_epoch = len(train_loader.dataset) / self.batch_size
+        batch_idx = -1
+        epoch_idx = 0
+        epoch_avg_loss = 0
+        iteration_last_step = 0
+        iter_start_time = 0
+        first = True
+        # use following flags to achieve letting each worker compute more batches
+        should_enter_next = False
+        batch_completed = 0
 
+        print("Worker {}: starting training".format(self.rank))
+        # start the training process
+        for num_epoch in range(self.max_epochs):
+            # after each epoch we need to make sure workers in the same group re-shuffling using the same seed
+            torch.manual_seed(self._group_seeds[self._group_num]+num_epoch)
+            for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
+                X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
+                while True:
+                    # the worker shouldn't know the current global step except received the message from parameter server
+                    self.async_fetch_step()
+                    # the only way every worker know which step they're currently on is to check the cur step variable
+                    updated = self.update_step()
+
+                    if should_enter_next:
+                        batch_completed = 0
+                        should_enter_next = False
+                        if (not updated) and (not first):
+                            # wait here unitl enter next step
+                            continue
+                    # the real start point of this iteration
+                    if batch_completed = 0:
+                        iter_start_time = time.time()
+                        first = False
+                        print("Rank of this node: {}, Current step: {}".format(self.rank, self.cur_step))
+                        # TODO(hwang): return layer request here and do weight before the forward step begins, rather than implement
+                        # the wait() in the fetch function
+                        fetch_weight_start_time = time.time()
+                        if self.comm_type == "Bcast":
+                            self.async_fetch_weights_bcast()
+                        elif self.comm_type == "Async":
+                            self.async_fetch_weights_async()
+                        fetch_weight_duration = time.time() - fetch_weight_start_time
+
+                    self.network.train()
+                    self.optimizer.zero_grad()
+                    # forward step
+                    forward_start_time = time.time()
+                    logits = self.network(X_batch)
+                    logits_1 = Variable(logits.data, requires_grad=True)
+
+                    loss = self.criterion(logits_1, y_batch)
+
+                    epoch_avg_loss += loss.data[0]
+                    forward_duration = time.time()-forward_start_time
+
+                    # backward step
+                    backward_start_time = time.time()
+                    loss.backward()
+                    computation_time = time.time() - iter_start_time
+
+                    init_grad_data = logits_1.grad.data.numpy()
+                    grads=self.network.backward_coded(logits_1.grad, self.cur_step)
+
+                    '''
+                    # send grad to parameter server
+                    if self.rank in self._fail_workers:
+                        # simulate some byzantine error here:
+                        simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
+                        req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                    else:
+                        req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                    req_send_check.append(req_isend)
+                    
+                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, 
+                                    cur_step=self.cur_step, fail_workers=self._fail_workers, err_mode=self._err_mode)
+                    req_send_check[-1].wait()
+                    backward_duration = time.time()-backward_start_time
+                    '''
+    
+
+                    # break here to fetch data then enter fetching step loop again
+                    batch_completed += 1
+                    # in current setting each group cotains k workers, we let each worker calculate k same batches
+                    if batch_completed == self._group_size:
+                        # on the end of a certain iteration
+                        prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
+                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                             self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
+                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                        should_enter_next=True
+                    break
+
+    def _construct_sending_buffer(self):
+        self._grad_sending_buffer = []
+        for mod in self.network.full_modules:
+            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.weight.size()[0],mod.weight.size()[1])))
+            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.bias.size()[0],mod.bias.size()[1])))
+
+    def _fill_sending_buffer(self, grad, index, k):
+        '''
+        k: batch index in replicated k batches assigned to a particular worker
+        '''
+        assert self._grad_sending_buffer[index][k].shape == grad.shape
+        self._grad_sending_buffer[index][k] == grad         
 
 if __name__ == "__main__":
     # this is only a simple test case

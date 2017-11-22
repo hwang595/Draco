@@ -29,12 +29,16 @@ from sync_replicas_master_nn import *
 from datasets import MNISTDataset
 from datasets import Cifar10Dataset
 
+SEED_ = 428
+
 def _group_assign(world_size, group_size, rank):
     '''
     split N worker nodes into k=N/S groups
     '''
     # sanity check we assume world size is divisable by group size
     assert world_size % group_size == 0
+    np.random.seed(SEED_)
+
     k = world_size/group_size
     group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
     group_seeds = [0]*k
@@ -145,7 +149,6 @@ if __name__ == "__main__":
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
             worker_fc_nn.train(train_loader=train_loader)
-            print("Now the next step is: {}".format(worker_fc_nn.next_step))
     elif args.coding_method == "maj_vote":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
@@ -153,13 +156,15 @@ if __name__ == "__main__":
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'group_list':group_list}
+                    'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num}
         if rank == 0:
-            pass
+            coded_master = CodedMaster(comm=comm, **kwargs_master)
+            coded_master.build_model()
+            print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
+            coded_master.start()
         else:
             train_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
-            for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
-                print("I'm worker: {}".format(rank))
-                print(train_image_batch.numpy()[0])
-                print('==========================================================================')
-                exit()
+            coded_worker = CodedWorker(comm=comm, **kwargs_worker)
+            coded_worker.build_model()
+            print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
+            coded_worker.train(train_loader=train_loader)

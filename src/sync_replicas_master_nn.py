@@ -114,7 +114,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		self._expected_grad_to_recv = kwargs['kill_threshold']
 		self._max_steps = kwargs['max_steps']
 		self._update_mode = kwargs['update_mode']
-		self._eval_batch_size = 1000
 
 	def build_model(self):
 		# build network
@@ -248,8 +247,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		for layer_idx, layer in enumerate(self.network.parameters()):
 			request_workers = []
 			layer_to_send = layer.data.numpy().astype(np.float64)
-			#for i in range(self.world_size):
-			#	if i != 0:
 			# try to see if collective communication is better here:
 			self.comm.Bcast([layer_to_send, MPI.DOUBLE], root=0)
 
@@ -332,3 +329,106 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			geo_median = np.array(hd.geomedian(np.array(grads), axis=0))
 			self._grad_aggregate_buffer[g_idx] = geo_median
 		print("Master Step: {} Found Geo Median Cost: {:.4f}".format(self.cur_step, time.time()-geo_median_start))
+
+
+class CodedMaster(SyncReplicasMaster_NN):
+	def __init__(self, comm, **kwargs):
+		'''master node here, no rank needed since the rank will always be 0 for master node'''
+		self.comm = comm   # get MPI communicator object
+		self.world_size = comm.Get_size() # total number of processes
+		self.cur_step = STEP_START_
+		self.lr = kwargs['learning_rate']
+		self.momentum = kwargs['momentum']
+		self.network_config = kwargs['network']
+		self.comm_type = kwargs['comm_method']
+		self._timeout_threshold = kwargs['timeout_threshold']
+
+		self._num_grad_to_collect = self.world_size - 1
+		# used to aggregate tmp gradients, the length is the same as # of fc layer 
+		self._grad_aggregate_buffer = []
+		self._model_shapes = []
+		self._first_grad_received = False
+		self._eval_freq = kwargs['eval_freq']
+		self._train_dir = kwargs['train_dir']
+		self._expected_grad_to_recv = kwargs['kill_threshold']
+		self._max_steps = kwargs['max_steps']
+		self._update_mode = kwargs['update_mode']
+		self._group_list = kwargs['group_list']
+
+	def start(self):
+		# the first step we need to do here is to sync fetch the inital worl_step from the parameter server
+		# we still need to make sure value fetched from ps is 1
+		self.async_bcast_step()
+
+		# fake test here:
+		for i in range(1, self._max_steps):
+			# switch back to training mode
+			self.network.train()
+			self._first_grad_received = False
+			enough_gradients_received = False
+
+			print("Master node is entering step: {}".format(i))
+
+			self.async_bcast_step()
+
+			if self.comm_type == "Bcast":
+				self.async_bcast_layer_weights_bcast()
+			elif self.comm_type == "Async":
+				self.async_bcast_layer_weights_async()
+			
+			# set the gradient fetch step and gather the request
+			gradient_fetch_requests=self.async_fetch_gradient_start()
+
+			# wait for enough gradients to be aggregated:
+			while not enough_gradients_received:
+				status = MPI.Status()
+				MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
+
+				if status.tag-88 in self.grad_accumulator.model_index_range:
+					if not self._first_grad_received:
+						self._first_grad_received=True
+						grad_gather_start_time = time.time()
+
+					layer_index = status.tag-88
+					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
+					
+					# do gradient shape check here
+					assert (received_grad.shape == self._model_shapes[layer_index])
+
+					# aggregate the gradient
+					############################ only for temp test ###################################
+					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._expected_grad_to_recv:
+						self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
+
+					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
+					
+					#print(self.grad_accumulator.gradient_aggregate_counter)
+					#print('---------------------------------------------------------------------')
+				
+				enough_gradients_received = True
+				for j in self.grad_accumulator.gradient_aggregate_counter:
+					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
+
+			if self._update_mode == "normal":
+				self._avg_received_grads()
+			elif self._update_mode == "geometric_median":
+				self._get_geo_median()
+
+			# update using SGD method
+			tmp_module = []
+			for param_idx, param in enumerate(self.network.parameters()):
+				updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
+				tmp_module.append(updated_model)
+
+			# update `state_dict` in pytorch modules
+			print("Master start to update the model")
+			self.model_update(tmp_module)
+
+			# reset essential elements
+			self.meset_grad_buffer()
+			self.grad_accumulator.meset_everything()
+			# save model for validation in a pre-specified frequency
+			if self.cur_step%self._eval_freq == 0:
+				self._save_model(file_path=self._generate_model_path())
+			self.cur_step += 1
+
