@@ -239,8 +239,6 @@ class DistributedWorker(NN_Trainer):
         for layer_idx, layer in enumerate(self.model_recv_buf.recv_buf):
             if self.model_recv_buf.layer_cur_step[layer_idx] < self.cur_step:
                 layers_to_update.append(layer_idx)
-                #req = self.comm.Irecv([self.model_recv_buf.recv_buf[layer_idx], MPI.DOUBLE], source=0, tag=11+layer_idx)
-                #request_layers.append(req)
                 self.comm.Bcast([self.model_recv_buf.recv_buf[layer_idx], MPI.DOUBLE], root=0)
         weights_to_update = []
         for req_idx, layer_idx in enumerate(layers_to_update):
@@ -321,6 +319,8 @@ class CodedWorker(DistributedWorker):
     def train(self, train_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure the value we fetched from parameter server is 1
+        self._construct_sending_buffer()
+
         self.sync_fetch_step()
         # do some sync check here
         assert(self.update_step())
@@ -346,21 +346,20 @@ class CodedWorker(DistributedWorker):
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
                 X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
                 while True:
-                    # the worker shouldn't know the current global step except received the message from parameter server
-                    self.async_fetch_step()
-                    # the only way every worker know which step they're currently on is to check the cur step variable
-                    updated = self.update_step()
-
                     if should_enter_next:
                         batch_completed = 0
-                        should_enter_next = False
+                        # the worker shouldn't know the current global step except received the message from parameter server
+                        self.async_fetch_step()
+                        # the only way every worker know which step they're currently on is to check the cur step variable
+                        updated = self.update_step()
                         if (not updated) and (not first):
                             # wait here unitl enter next step
                             continue
                     # the real start point of this iteration
-                    if batch_completed = 0:
+                    if batch_completed == 0:
                         iter_start_time = time.time()
                         first = False
+                        should_enter_next = False
                         print("Rank of this node: {}, Current step: {}".format(self.rank, self.cur_step))
                         # TODO(hwang): return layer request here and do weight before the forward step begins, rather than implement
                         # the wait() in the fetch function
@@ -389,24 +388,10 @@ class CodedWorker(DistributedWorker):
                     computation_time = time.time() - iter_start_time
 
                     init_grad_data = logits_1.grad.data.numpy()
+
                     grads=self.network.backward_coded(logits_1.grad, self.cur_step)
 
-                    '''
-                    # send grad to parameter server
-                    if self.rank in self._fail_workers:
-                        # simulate some byzantine error here:
-                        simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
-                        req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
-                    else:
-                        req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
-                    req_send_check.append(req_isend)
-                    
-                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, 
-                                    cur_step=self.cur_step, fail_workers=self._fail_workers, err_mode=self._err_mode)
-                    req_send_check[-1].wait()
-                    backward_duration = time.time()-backward_start_time
-                    '''
-    
+                    self._push_grads(grads, batch_completed)
 
                     # break here to fetch data then enter fetching step loop again
                     batch_completed += 1
@@ -417,6 +402,7 @@ class CodedWorker(DistributedWorker):
                         print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
                              self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
                                 (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                        self._send_grads()
                         should_enter_next=True
                     break
 
@@ -424,14 +410,27 @@ class CodedWorker(DistributedWorker):
         self._grad_sending_buffer = []
         for mod in self.network.full_modules:
             self._grad_sending_buffer.append(np.zeros((self._group_size,mod.weight.size()[0],mod.weight.size()[1])))
-            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.bias.size()[0],mod.bias.size()[1])))
+            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.bias.size()[0])))
 
     def _fill_sending_buffer(self, grad, index, k):
         '''
         k: batch index in replicated k batches assigned to a particular worker
         '''
         assert self._grad_sending_buffer[index][k].shape == grad.shape
-        self._grad_sending_buffer[index][k] == grad         
+        self._grad_sending_buffer[index][k]=grad
+
+    def _push_grads(self, grads, k):
+        for i, grad in enumerate(reversed(grads)):
+            self._fill_sending_buffer(grad, i, k)
+
+    def _send_grads(self):
+        req_send_check = []
+        for i, grads in enumerate(self._grad_sending_buffer):
+            if len(req_send_check) != 0:
+                req_send_check[-1].wait()
+            req_isend = self.comm.Isend([grads, MPI.DOUBLE], dest=0, tag=88+i)
+            req_send_check.append(req_isend)
+        req_send_check[-1].wait()
 
 if __name__ == "__main__":
     # this is only a simple test case

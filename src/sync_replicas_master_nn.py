@@ -43,37 +43,29 @@ def accuracy(output, target, topk=(1,)):
 
 class GradientAccumulator(object):
 	'''a simple class to implement gradient aggregator like the `Conditional Accumulators` in tensorflow'''
-	def __init__(self, module, num_worker):
+	def __init__(self, module, num_worker, k, mode):
 		# we will update this counter dynamically during the training process
 		# the length of this counter should be number of fc layers in the network
-		
-		'''
-		model_length = len(module.state_dict())
-		self.gradient_aggregate_counter = [0] * model_length
-		self.model_index_range = [i for i in range(model_length)]
-		'''
-
 		# we used list to contain gradients of layers
+		self._mode = mode
 		self.gradient_aggregate_counter = []
 		self.model_index_range = []
 		self.gradient_aggregator = []
-
-
-		# TODO(hwang): we do not need to allocate so many space here since we need
-		# to aggregate the gradient into each slot
-		# for similar reason to worker side, we temporarily change this to the version without batch norm
-		'''
-		for param_idx,(key_name, param) in enumerate(module.state_dict().items()):
-			tmp_aggregator = []
-			for worker_idx in range(num_worker):
-				tmp_aggregator.append(np.zeros((param.size())))
-			# initialize the gradient aggragator
-			self.gradient_aggregator.append(tmp_aggregator)
-		'''
+		
 		for param_idx, param in enumerate(module.parameters()):
 			tmp_aggregator = []
 			for worker_idx in range(num_worker):
-				tmp_aggregator.append(np.zeros((param.size())))
+				if self._mode == "normal":
+					tmp_aggregator.append(np.zeros((param.size())))
+				elif self._mode == "coded":
+					assert k is not None
+					shape = param.size()
+					if len(shape) == 1:
+						tmp_aggregator.append(np.zeros((k, shape[0])))
+					elif len(shape) == 2:
+						tmp_aggregator.append(np.zeros((k, shape[0], shape[1])))
+					elif len(shape) == 4:
+						tmp_aggregator.append(np.zeros((k, shape[0], shape[1], shape[2], shape[3])))
 			# initialize the gradient aggragator
 			self.gradient_aggregator.append(tmp_aggregator)
 			self.gradient_aggregate_counter.append(0)
@@ -92,9 +84,12 @@ class GradientAccumulator(object):
 			for j, buf in enumerate(tmp_aggregator):
 				self.gradient_aggregator[i][j] = np.zeros(self.gradient_aggregator[i][j].shape)
 
+
 class SyncReplicasMaster_NN(NN_Trainer):
 	def __init__(self, comm, **kwargs):
-		'''master node here, no rank needed since the rank will always be 0 for master node'''
+		'''
+		master node here, no rank needed since the rank will always be 0 for master node
+		'''
 		self.comm = comm   # get MPI communicator object
 		self.world_size = comm.Get_size() # total number of processes
 		self.cur_step = STEP_START_
@@ -126,10 +121,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		elif self.network_config == "FC":
 			self.network=FC_NN_Split()
 
-		# TODO(hwang): make sure this is useful
-		self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
 		# assign a gradient accumulator to collect gradients from workers
-		self.grad_accumulator = GradientAccumulator(module=self.network, num_worker=self.world_size-1)
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, None, mode="normal")
 		self.init_model_shapes()
 
 	def start(self):
@@ -251,18 +244,20 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			self.comm.Bcast([layer_to_send, MPI.DOUBLE], root=0)
 
 	def async_fetch_gradient_start(self):
-		'''make gradient fetch requests and return the request list'''
+		'''
+		make gradient fetch requests and return the request list
+		'''
 		gradient_fetch_requests = [] # `graident_fetch_request` should have length of #fc_layer*num_grad_to_collect
 		for layer_idx, layer in enumerate(self.network.parameters()):
 			for k in range(self._num_grad_to_collect):
-				#print(88+layer_idx, layer_idx)
 				req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.DOUBLE], source=MPI.ANY_SOURCE, tag=88+layer_idx)
-				#req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.FLOAT], source=MPI.ANY_SOURCE, tag=88+layer_idx)
 				gradient_fetch_requests.append(req)
 		return gradient_fetch_requests
 
 	def aggregate_gradient(self, gradient, layer_idx):
-		'''keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`'''
+		'''
+		keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`
+		'''
 		if self._update_mode == "normal":
 			self._grad_aggregate_buffer[layer_idx] += gradient
 		elif self._update_mode == "geometric_median":
@@ -351,9 +346,32 @@ class CodedMaster(SyncReplicasMaster_NN):
 		self._eval_freq = kwargs['eval_freq']
 		self._train_dir = kwargs['train_dir']
 		self._expected_grad_to_recv = kwargs['kill_threshold']
+		#####################################################################
+		self._update_mode = "normal"
+		#####################################################################
 		self._max_steps = kwargs['max_steps']
-		self._update_mode = kwargs['update_mode']
 		self._group_list = kwargs['group_list']
+		self._group_size = len(self._group_list[0])
+
+	def build_model(self):
+		# build network
+		if self.network_config == "LeNet":
+			self.network=LeNetSplit()
+		elif self.network_config == "ResNet18":
+			self.network=ResNetSplit18(self._timeout_threshold)
+		elif self.network_config == "ResNet34":
+			self.network=ResNetSplit34()
+		elif self.network_config == "FC":
+			self.network=FC_NN_Split()
+
+		# assign a gradient accumulator to collect gradients from workers
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, self._group_size, mode="coded")
+		self.init_model_shapes()
+
+	def init_model_shapes(self):
+		for param_idx, param in enumerate(self.network.parameters()):
+			self._model_shapes.append(param.size())
+			self._grad_aggregate_buffer.append(np.zeros(param.size()))
 
 	def start(self):
 		# the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -378,12 +396,10 @@ class CodedMaster(SyncReplicasMaster_NN):
 			
 			# set the gradient fetch step and gather the request
 			gradient_fetch_requests=self.async_fetch_gradient_start()
-
 			# wait for enough gradients to be aggregated:
 			while not enough_gradients_received:
 				status = MPI.Status()
 				MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
-
 				if status.tag-88 in self.grad_accumulator.model_index_range:
 					if not self._first_grad_received:
 						self._first_grad_received=True
@@ -393,7 +409,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					
 					# do gradient shape check here
-					assert (received_grad.shape == self._model_shapes[layer_index])
+					assert (received_grad[0].shape == self._model_shapes[layer_index])
 
 					# aggregate the gradient
 					############################ only for temp test ###################################
@@ -408,11 +424,12 @@ class CodedMaster(SyncReplicasMaster_NN):
 				enough_gradients_received = True
 				for j in self.grad_accumulator.gradient_aggregate_counter:
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
-
+			
 			if self._update_mode == "normal":
 				self._avg_received_grads()
-			elif self._update_mode == "geometric_median":
-				self._get_geo_median()
+			elif self._update_mode == "maj_vote":
+				# under development, stay tunned
+				pass
 
 			# update using SGD method
 			tmp_module = []
@@ -432,3 +449,13 @@ class CodedMaster(SyncReplicasMaster_NN):
 				self._save_model(file_path=self._generate_model_path())
 			self.cur_step += 1
 
+	def aggregate_gradient(self, gradient, layer_idx):
+		'''
+		keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`
+		'''
+		if self._update_mode == "normal":
+			# the most trivial case, we just use one of grad in the grads packet to update the model
+			self._grad_aggregate_buffer[layer_idx] += gradient[0]
+		elif self._update_mode == "maj_vote":
+			# under development, stay tunned
+			pass
