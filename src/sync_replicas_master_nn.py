@@ -250,7 +250,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		gradient_fetch_requests = [] # `graident_fetch_request` should have length of #fc_layer*num_grad_to_collect
 		for layer_idx, layer in enumerate(self.network.parameters()):
 			for k in range(self._num_grad_to_collect):
-				req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.DOUBLE], source=MPI.ANY_SOURCE, tag=88+layer_idx)
+				req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.DOUBLE], source=k+1, tag=88+layer_idx)
 				gradient_fetch_requests.append(req)
 		return gradient_fetch_requests
 
@@ -341,6 +341,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 		self._num_grad_to_collect = self.world_size - 1
 		# used to aggregate tmp gradients, the length is the same as # of fc layer 
 		self._grad_aggregate_buffer = []
+		self._coded_grads_buffer = {}
 		self._model_shapes = []
 		self._first_grad_received = False
 		self._eval_freq = kwargs['eval_freq']
@@ -369,9 +370,24 @@ class CodedMaster(SyncReplicasMaster_NN):
 		self.init_model_shapes()
 
 	def init_model_shapes(self):
+		tmp_aggregate_buffer = []
 		for param_idx, param in enumerate(self.network.parameters()):
-			self._model_shapes.append(param.size())
-			self._grad_aggregate_buffer.append(np.zeros(param.size()))
+			shape = param.size()
+			self._model_shapes.append(shape)
+			self._grad_aggregate_buffer.append(np.zeros(shape))
+			if len(shape) == 1:
+				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0])))
+			elif len(shape) == 2:
+				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0], shape[1])))
+			elif len(shape) == 4:
+				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0], shape[1], shape[2], shape[3])))
+
+		for k, v in self._group_list.iteritems():
+			for i, l in enumerate(v):
+				if k not in self._coded_grads_buffer.keys():
+					self._coded_grads_buffer[k] = [copy.deepcopy(tmp_aggregate_buffer)]
+				else:
+					self._coded_grads_buffer[k].append(copy.deepcopy(tmp_aggregate_buffer))
 
 	def start(self):
 		# the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -406,15 +422,17 @@ class CodedMaster(SyncReplicasMaster_NN):
 						grad_gather_start_time = time.time()
 
 					layer_index = status.tag-88
+
+					# issue here: sometimes this can be zero
+					#received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
-					
 					# do gradient shape check here
 					assert (received_grad[0].shape == self._model_shapes[layer_index])
 
 					# aggregate the gradient
 					############################ only for temp test ###################################
 					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._expected_grad_to_recv:
-						self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
+						self.aggregate_gradient(received_grad, layer_index, status.source)
 
 					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
 					
@@ -425,6 +443,12 @@ class CodedMaster(SyncReplicasMaster_NN):
 				for j in self.grad_accumulator.gradient_aggregate_counter:
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
 			
+			for k, v in self._coded_grads_buffer.iteritems():
+				print(k)
+				for i, elem in enumerate(v):
+					print(i, elem[-2])
+					print('#######################################################################')
+			exit()
 			if self._update_mode == "normal":
 				self._avg_received_grads()
 			elif self._update_mode == "maj_vote":
@@ -449,13 +473,17 @@ class CodedMaster(SyncReplicasMaster_NN):
 				self._save_model(file_path=self._generate_model_path())
 			self.cur_step += 1
 
-	def aggregate_gradient(self, gradient, layer_idx):
+	def aggregate_gradient(self, gradient, layer_idx, source):
 		'''
 		keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`
 		'''
 		if self._update_mode == "normal":
 			# the most trivial case, we just use one of grad in the grads packet to update the model
 			self._grad_aggregate_buffer[layer_idx] += gradient[0]
+			for k, v in self._group_list.iteritems():
+				if source in v:
+					assert self._coded_grads_buffer[k][v.index(source)][layer_idx].shape == gradient.shape
+					self._coded_grads_buffer[k][v.index(source)][layer_idx] = gradient
 		elif self._update_mode == "maj_vote":
 			# under development, stay tunned
 			pass

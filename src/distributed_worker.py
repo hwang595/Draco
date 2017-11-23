@@ -399,9 +399,9 @@ class CodedWorker(DistributedWorker):
                     if batch_completed == self._group_size:
                         # on the end of a certain iteration
                         prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
-                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
-                             self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                        #print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                        #     self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
+                        #        (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
                         self._send_grads()
                         should_enter_next=True
                     break
