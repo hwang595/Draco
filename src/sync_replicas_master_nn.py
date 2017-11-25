@@ -418,7 +418,6 @@ class CodedMaster(SyncReplicasMaster_NN):
 						self.aggregate_gradient(received_grad, layer_index, status.source)
 
 					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
-					
 					#print(self.grad_accumulator.gradient_aggregate_counter)
 					#print('---------------------------------------------------------------------')
 				

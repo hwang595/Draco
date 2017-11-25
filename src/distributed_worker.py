@@ -308,10 +308,14 @@ class CodedWorker(DistributedWorker):
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
         self._group_list = kwargs['group_list']
+        self._err_case = kwargs['err_case']
         #self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
         assert kwargs['worker_fail'] % len(self._group_list) == 0
         _fail_per_group = kwargs['worker_fail'] / len(self._group_list)
-        self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1)]
+        if self._err_case == 'best_case':
+            self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1)]
+        elif self._err_case == 'worst_case':
+            self._fail_workers = [g[i] for _,g in self._group_list.iteritems() for i in range(_fail_per_group)]
         self._group_seeds = kwargs['group_seeds'] 
         self._group_num = kwargs['group_num'] # which group this worker belongs to
         self._group_size = len(self._group_list[0])

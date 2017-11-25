@@ -122,6 +122,8 @@ def add_fit_args(parser):
                         help='how many number of worker nodes we want to simulate byzantine error on')
     parser.add_argument('--group-size', type=int, default=5, metavar='N',
                         help='in majority vote how many worker nodes are in a certain group')
+    parser.add_argument('--err-case', type=str, default='best_case', metavar='N',
+                        help='best_case or worst_case will affect the time cost for majority vote in adversarial coding')
     args = parser.parse_args()
     return args
 
@@ -159,7 +161,8 @@ if __name__ == "__main__":
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num}
+                    'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
+                    'err_case':args.err_case}
 
         if rank == 0:
             coded_master = CodedMaster(comm=comm, **kwargs_master)
