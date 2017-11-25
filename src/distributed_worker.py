@@ -407,17 +407,20 @@ class CodedWorker(DistributedWorker):
                     batch_completed += 1
                     # in current setting each group cotains k workers, we let each worker calculate k same batches
                     if batch_completed == self._group_size:
+                        comm_start = time.time()
+                        self._send_grads()
+                        comm_duration = time.time() - comm_start
                         # on the end of a certain iteration
                         iter_avg_loss /= self._group_size
                         iter_avg_prec1 /= self._group_size
                         iter_avg_prec5 /= self._group_size
-                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Comm Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
                              self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), iter_avg_loss, time.time()-iter_start_time, computation_time, iter_avg_prec1, iter_avg_prec5))
+                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), iter_avg_loss, time.time()-iter_start_time, computation_time, comm_duration, iter_avg_prec1, iter_avg_prec5))
                         iter_avg_loss = 0
                         iter_avg_prec1 = 0
                         iter_avg_prec5 = 0
-                        self._send_grads()
+                        
                         should_enter_next=True
                     break
 

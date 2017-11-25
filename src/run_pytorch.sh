@@ -1,4 +1,4 @@
-mpirun -n 7 \
+mpirun -n 7 --hostfile hosts_address \
 python distributed_nn.py \
 --lr=0.01 \
 --network=FC \
