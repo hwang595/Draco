@@ -1,5 +1,5 @@
-KEY_PEM_DIR=/home/hwang/My_Code/AWS/HongyiScript.pem
-KEY_PEM_NAME=HongyiScript.pem
+KEY_PEM_DIR=/home/hwang/My_Code/AWS/HongyiScript2.pem
+KEY_PEM_NAME=HongyiScript2.pem
 PUB_IP_ADDR="$1"
 echo "Public address of master node: ${PUB_IP_ADDR}"
 
