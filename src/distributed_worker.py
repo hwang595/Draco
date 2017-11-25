@@ -321,7 +321,6 @@ class CodedWorker(DistributedWorker):
     def train(self, train_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure the value we fetched from parameter server is 1
-        self._construct_sending_buffer()
 
         self.sync_fetch_step()
         # do some sync check here
@@ -336,12 +335,10 @@ class CodedWorker(DistributedWorker):
         iteration_last_step = 0
         iter_start_time = 0
         first = True
-        iter_avg_loss = 0
         iter_avg_prec1 = 0
         iter_avg_prec5 = 0
         # use following flags to achieve letting each worker compute more batches
         should_enter_next = False
-        batch_completed = 0
 
         print("Worker {}: starting training".format(self.rank))
         # start the training process
@@ -351,29 +348,26 @@ class CodedWorker(DistributedWorker):
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
                 X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
                 while True:
-                    if should_enter_next:
-                        batch_completed = 0
-                        # the worker shouldn't know the current global step except received the message from parameter server
-                        self.async_fetch_step()
-                        # the only way every worker know which step they're currently on is to check the cur step variable
-                        updated = self.update_step()
-                        if (not updated) and (not first):
-                            # wait here unitl enter next step
-                            continue
+                    # the worker shouldn't know the current global step except received the message from parameter server
+                    self.async_fetch_step()
+                    # the only way every worker know which step they're currently on is to check the cur step variable
+                    updated = self.update_step()
+                    if (not updated) and (not first):
+                        # wait here unitl enter next step
+                        continue
                     # the real start point of this iteration
-                    if batch_completed == 0:
-                        iter_start_time = time.time()
-                        first = False
-                        should_enter_next = False
-                        print("Rank of this node: {}, Current step: {}".format(self.rank, self.cur_step))
-                        # TODO(hwang): return layer request here and do weight before the forward step begins, rather than implement
-                        # the wait() in the fetch function
-                        fetch_weight_start_time = time.time()
-                        if self.comm_type == "Bcast":
-                            self.async_fetch_weights_bcast()
-                        elif self.comm_type == "Async":
-                            self.async_fetch_weights_async()
-                        fetch_weight_duration = time.time() - fetch_weight_start_time
+                    iter_start_time = time.time()
+                    first = False
+                    should_enter_next = False
+                    print("Rank of this node: {}, Current step: {}".format(self.rank, self.cur_step))
+                    # TODO(hwang): return layer request here and do weight before the forward step begins, rather 
+                    # than implement the wait() in the fetch function
+                    fetch_weight_start_time = time.time()
+                    if self.comm_type == "Bcast":
+                        self.async_fetch_weights_bcast()
+                    elif self.comm_type == "Async":
+                        self.async_fetch_weights_async()
+                    fetch_weight_duration = time.time() - fetch_weight_start_time
 
                     self.network.train()
                     self.optimizer.zero_grad()
@@ -381,16 +375,9 @@ class CodedWorker(DistributedWorker):
                     forward_start_time = time.time()
                     logits = self.network(X_batch)
 
-                    # calculate training acc
-                    prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
-
                     logits_1 = Variable(logits.data, requires_grad=True)
                     loss = self.criterion(logits_1, y_batch)
                     forward_duration = time.time()-forward_start_time
-
-                    iter_avg_loss += loss.data[0]
-                    iter_avg_prec1 += prec1.numpy()[0]
-                    iter_avg_prec5 += prec5.numpy()[0]
 
                     # backward step
                     backward_start_time = time.time()
@@ -401,59 +388,28 @@ class CodedWorker(DistributedWorker):
 
                     grads=self.network.backward_coded(logits_1.grad, self.cur_step)
 
-                    self._push_grads(grads, batch_completed)
-
-                    # break here to fetch data then enter fetching step loop again
-                    batch_completed += 1
+                    prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                     # in current setting each group cotains k workers, we let each worker calculate k same batches
-                    if batch_completed == self._group_size:
-                        comm_start = time.time()
-                        self._send_grads()
-                        comm_duration = time.time() - comm_start
-                        # on the end of a certain iteration
-                        iter_avg_loss /= self._group_size
-                        iter_avg_prec1 /= self._group_size
-                        iter_avg_prec5 /= self._group_size
-                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Comm Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
-                             self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), iter_avg_loss, time.time()-iter_start_time, computation_time, comm_duration, iter_avg_prec1, iter_avg_prec5))
-                        iter_avg_loss = 0
-                        iter_avg_prec1 = 0
-                        iter_avg_prec5 = 0
-                        
-                        should_enter_next=True
+                    self._send_grads(grads)
+                    print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                         self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
+                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
                     break
 
-    def _construct_sending_buffer(self):
-        self._grad_sending_buffer = []
-        for mod in self.network.full_modules:
-            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.weight.size()[0],mod.weight.size()[1])))
-            self._grad_sending_buffer.append(np.zeros((self._group_size,mod.bias.size()[0])))
-
-    def _fill_sending_buffer(self, grad, index, k):
-        '''
-        k: batch index in replicated k batches assigned to a particular worker
-        '''
-        assert self._grad_sending_buffer[index][k].shape == grad.shape
-        if self.rank in self._fail_workers:
-            # simulate some byzantine error here:
-            simulation_grad = err_simulation(grad, self._err_mode)
-            self._grad_sending_buffer[index][k]=simulation_grad
-        else:
-            self._grad_sending_buffer[index][k]=grad
-
-    def _push_grads(self, grads, k):
-        for i, grad in enumerate(reversed(grads)):
-            self._fill_sending_buffer(grad, i, k)
-
-    def _send_grads(self):
+    def _send_grads(self, grads):
         req_send_check = []
-        for i, grads in enumerate(self._grad_sending_buffer):
+        for i, grad in enumerate(reversed(grads)):
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
-            req_isend = self.comm.Isend([grads, MPI.DOUBLE], dest=0, tag=88+i)
-            req_send_check.append(req_isend)
+            if self.rank in self._fail_workers:
+                simulation_grad = err_simulation(grad, self._err_mode)
+                req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+i)
+                req_send_check.append(req_isend)
+            else:
+                req_isend = self.comm.Isend([grad, MPI.DOUBLE], dest=0, tag=88+i)
+                req_send_check.append(req_isend)
         req_send_check[-1].wait()
+
 
 if __name__ == "__main__":
     # this is only a simple test case

@@ -43,11 +43,10 @@ def accuracy(output, target, topk=(1,)):
 
 class GradientAccumulator(object):
 	'''a simple class to implement gradient aggregator like the `Conditional Accumulators` in tensorflow'''
-	def __init__(self, module, num_worker, k, mode):
+	def __init__(self, module, num_worker):
 		# we will update this counter dynamically during the training process
 		# the length of this counter should be number of fc layers in the network
 		# we used list to contain gradients of layers
-		self._mode = mode
 		self.gradient_aggregate_counter = []
 		self.model_index_range = []
 		self.gradient_aggregator = []
@@ -55,17 +54,7 @@ class GradientAccumulator(object):
 		for param_idx, param in enumerate(module.parameters()):
 			tmp_aggregator = []
 			for worker_idx in range(num_worker):
-				if self._mode == "normal":
-					tmp_aggregator.append(np.zeros((param.size())))
-				elif self._mode == "coded":
-					assert k is not None
-					shape = param.size()
-					if len(shape) == 1:
-						tmp_aggregator.append(np.zeros((k, shape[0])))
-					elif len(shape) == 2:
-						tmp_aggregator.append(np.zeros((k, shape[0], shape[1])))
-					elif len(shape) == 4:
-						tmp_aggregator.append(np.zeros((k, shape[0], shape[1], shape[2], shape[3])))
+				tmp_aggregator.append(np.zeros((param.size())))
 			# initialize the gradient aggragator
 			self.gradient_aggregator.append(tmp_aggregator)
 			self.gradient_aggregate_counter.append(0)
@@ -124,7 +113,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			self.network=FC_NN_Split()
 
 		# assign a gradient accumulator to collect gradients from workers
-		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, None, mode="normal")
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1)
 		self.init_model_shapes()
 
 	def start(self):
@@ -366,7 +355,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 			self.network=FC_NN_Split()
 
 		# assign a gradient accumulator to collect gradients from workers
-		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, self._group_size, mode="coded")
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1)
 		self.init_model_shapes()
 
 	def init_model_shapes(self):
@@ -375,12 +364,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 			shape = param.size()
 			self._model_shapes.append(shape)
 			self._grad_aggregate_buffer.append(np.zeros(shape))
-			if len(shape) == 1:
-				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0])))
-			elif len(shape) == 2:
-				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0], shape[1])))
-			elif len(shape) == 4:
-				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0], shape[1], shape[2], shape[3])))
+			tmp_aggregate_buffer.append(np.zeros(shape))
 
 		if self._update_mode == "maj_vote":
 			for k, v in self._group_list.iteritems():
@@ -427,7 +411,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 					#received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					# do gradient shape check here
-					assert (received_grad[0].shape == self._model_shapes[layer_index])
+					assert (received_grad.shape == self._model_shapes[layer_index])
 
 					# aggregate the gradient
 					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._num_grad_to_collect:
@@ -474,11 +458,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 		keep in mind the gradient here is wrapped gradient, which means it contains `W` and `b`
 		'''
 		if self._update_mode == "normal":
-			# the most trivial case, we just use one of grad in the grads packet to update the model
-			_dim = gradient.shape[0]
-			for i in range(_dim):
-				self._grad_aggregate_buffer[layer_idx] += gradient[i]
-			self._grad_aggregate_buffer[layer_idx] /= float(_dim)
+			self._grad_aggregate_buffer[layer_idx] += gradient
 		elif self._update_mode == "maj_vote":
 			# under development, stay tunned
 			for k, v in self._group_list.iteritems():
@@ -504,7 +484,8 @@ class CodedMaster(SyncReplicasMaster_NN):
 						_maj_search_index += 1
 						_maj_grad = v[_maj_search_index][j]
 				# write maj grad into grad aggregate buffer
-				_dim = _maj_grad.shape[0]
-				for i in range(_dim):
-					self._grad_aggregate_buffer[j] += _maj_grad[i]
-				self._grad_aggregate_buffer[j] /= float(_dim)
+				assert self._grad_aggregate_buffer[j].shape == _maj_grad.shape
+				self._grad_aggregate_buffer[j] += _maj_grad
+		# average among groups
+		for i in range(len(self._grad_aggregate_buffer)):
+			self._grad_aggregate_buffer[i] /= len(self._group_list)
