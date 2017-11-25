@@ -79,7 +79,9 @@ class GradientAccumulator(object):
 		self.gradient_aggregate_counter = [0 for _ in self.gradient_aggregate_counter]
 
 	def _meset_grad_aggregator(self):
-		'''reset the buffers in grad accumulator, not sure if this is necessary'''
+		'''
+		reset the buffers in grad accumulator, not sure if this is necessary
+		'''
 		for i, tmp_aggregator in enumerate(self.gradient_aggregator):
 			for j, buf in enumerate(tmp_aggregator):
 				self.gradient_aggregator[i][j] = np.zeros(self.gradient_aggregator[i][j].shape)
@@ -168,7 +170,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
 					# aggregate the gradient
 					############################ only for temp test ###################################
-					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._expected_grad_to_recv:
+					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._num_grad_to_collect:
 						self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
 
 					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
@@ -284,7 +286,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
 	def meset_grad_buffer(self):
 		for i in range(len(self._grad_aggregate_buffer)):
-			if self._update_mode == "normal":
+			if self._update_mode == "normal" or self._update_mode == "maj_vote":
 				self._grad_aggregate_buffer[i] = np.zeros(self._grad_aggregate_buffer[i].shape)
 			elif self._update_mode == "geometric_median":
 				self._grad_aggregate_buffer[i] = []
@@ -347,9 +349,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 		self._eval_freq = kwargs['eval_freq']
 		self._train_dir = kwargs['train_dir']
 		self._expected_grad_to_recv = kwargs['kill_threshold']
-		#####################################################################
-		self._update_mode = "normal"
-		#####################################################################
+		self._update_mode = kwargs['update_mode']
 		self._max_steps = kwargs['max_steps']
 		self._group_list = kwargs['group_list']
 		self._group_size = len(self._group_list[0])
@@ -382,12 +382,13 @@ class CodedMaster(SyncReplicasMaster_NN):
 			elif len(shape) == 4:
 				tmp_aggregate_buffer.append(np.zeros((self._group_size, shape[0], shape[1], shape[2], shape[3])))
 
-		for k, v in self._group_list.iteritems():
-			for i, l in enumerate(v):
-				if k not in self._coded_grads_buffer.keys():
-					self._coded_grads_buffer[k] = [copy.deepcopy(tmp_aggregate_buffer)]
-				else:
-					self._coded_grads_buffer[k].append(copy.deepcopy(tmp_aggregate_buffer))
+		if self._update_mode == "maj_vote":
+			for k, v in self._group_list.iteritems():
+				for i, l in enumerate(v):
+					if k not in self._coded_grads_buffer.keys():
+						self._coded_grads_buffer[k] = [copy.deepcopy(tmp_aggregate_buffer)]
+					else:
+						self._coded_grads_buffer[k].append(copy.deepcopy(tmp_aggregate_buffer))
 
 	def start(self):
 		# the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -402,7 +403,6 @@ class CodedMaster(SyncReplicasMaster_NN):
 			enough_gradients_received = False
 
 			print("Master node is entering step: {}".format(i))
-
 			self.async_bcast_step()
 
 			if self.comm_type == "Bcast":
@@ -430,8 +430,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 					assert (received_grad[0].shape == self._model_shapes[layer_index])
 
 					# aggregate the gradient
-					############################ only for temp test ###################################
-					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._expected_grad_to_recv:
+					if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._num_grad_to_collect:
 						self.aggregate_gradient(received_grad, layer_index, status.source)
 
 					self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
@@ -443,17 +442,14 @@ class CodedMaster(SyncReplicasMaster_NN):
 				for j in self.grad_accumulator.gradient_aggregate_counter:
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
 			
-			for k, v in self._coded_grads_buffer.iteritems():
-				print(k)
-				for i, elem in enumerate(v):
-					print(i, elem[-2])
-					print('#######################################################################')
-			exit()
 			if self._update_mode == "normal":
 				self._avg_received_grads()
 			elif self._update_mode == "maj_vote":
 				# under development, stay tunned
-				pass
+				search_maj_start = time.time()
+				self._grad_majority_vote()
+				search_maj_duration = time.time() - search_maj_start
+				print("Master at Step: {} , Majority Vote Duration: {}".format(self.cur_step, search_maj_duration))
 
 			# update using SGD method
 			tmp_module = []
@@ -479,11 +475,36 @@ class CodedMaster(SyncReplicasMaster_NN):
 		'''
 		if self._update_mode == "normal":
 			# the most trivial case, we just use one of grad in the grads packet to update the model
-			self._grad_aggregate_buffer[layer_idx] += gradient[0]
+			_dim = gradient.shape[0]
+			for i in range(_dim):
+				self._grad_aggregate_buffer[layer_idx] += gradient[i]
+			self._grad_aggregate_buffer[layer_idx] /= float(_dim)
+		elif self._update_mode == "maj_vote":
+			# under development, stay tunned
 			for k, v in self._group_list.iteritems():
 				if source in v:
 					assert self._coded_grads_buffer[k][v.index(source)][layer_idx].shape == gradient.shape
 					self._coded_grads_buffer[k][v.index(source)][layer_idx] = gradient
-		elif self._update_mode == "maj_vote":
-			# under development, stay tunned
-			pass
+
+	def _grad_majority_vote(self):
+		for k, v in self._coded_grads_buffer.iteritems():
+			for j, _ in enumerate(self.network.parameters()):
+				_maj_counter = 0
+				_maj_found = False
+				_maj_search_index = 0
+				_maj_grad = v[_maj_search_index][j]
+				while not _maj_found:
+					for i, elem in enumerate(v):
+						if np.array_equal(elem[j], _maj_grad):
+							_maj_counter += 1
+					if _maj_counter > self._group_size/2:
+						_maj_found=True
+					else:
+						_maj_counter = 0
+						_maj_search_index += 1
+						_maj_grad = v[_maj_search_index][j]
+				# write maj grad into grad aggregate buffer
+				_dim = _maj_grad.shape[0]
+				for i in range(_dim):
+					self._grad_aggregate_buffer[j] += _maj_grad[i]
+				self._grad_aggregate_buffer[j] /= float(_dim)

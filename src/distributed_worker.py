@@ -307,11 +307,13 @@ class CodedWorker(DistributedWorker):
         self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
-        self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
-
         self._group_list = kwargs['group_list']
-        self._group_seeds = kwargs['group_seeds']
-        self._group_num = kwargs['group_num']
+        #self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
+        assert kwargs['worker_fail'] % len(self._group_list) == 0
+        _fail_per_group = kwargs['worker_fail'] / len(self._group_list)
+        self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1)]
+        self._group_seeds = kwargs['group_seeds'] 
+        self._group_num = kwargs['group_num'] # which group this worker belongs to
         self._group_size = len(self._group_list[0])
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
@@ -334,6 +336,9 @@ class CodedWorker(DistributedWorker):
         iteration_last_step = 0
         iter_start_time = 0
         first = True
+        iter_avg_loss = 0
+        iter_avg_prec1 = 0
+        iter_avg_prec5 = 0
         # use following flags to achieve letting each worker compute more batches
         should_enter_next = False
         batch_completed = 0
@@ -375,12 +380,17 @@ class CodedWorker(DistributedWorker):
                     # forward step
                     forward_start_time = time.time()
                     logits = self.network(X_batch)
+
+                    # calculate training acc
+                    prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
+
                     logits_1 = Variable(logits.data, requires_grad=True)
-
                     loss = self.criterion(logits_1, y_batch)
-
-                    epoch_avg_loss += loss.data[0]
                     forward_duration = time.time()-forward_start_time
+
+                    iter_avg_loss += loss.data[0]
+                    iter_avg_prec1 += prec1.numpy()[0]
+                    iter_avg_prec5 += prec5.numpy()[0]
 
                     # backward step
                     backward_start_time = time.time()
@@ -398,10 +408,15 @@ class CodedWorker(DistributedWorker):
                     # in current setting each group cotains k workers, we let each worker calculate k same batches
                     if batch_completed == self._group_size:
                         # on the end of a certain iteration
-                        prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
-                        #print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
-                        #     self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                        #        (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                        iter_avg_loss /= self._group_size
+                        iter_avg_prec1 /= self._group_size
+                        iter_avg_prec5 /= self._group_size
+                        print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                             self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
+                                (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), iter_avg_loss, time.time()-iter_start_time, computation_time, iter_avg_prec1, iter_avg_prec5))
+                        iter_avg_loss = 0
+                        iter_avg_prec1 = 0
+                        iter_avg_prec5 = 0
                         self._send_grads()
                         should_enter_next=True
                     break
@@ -417,7 +432,12 @@ class CodedWorker(DistributedWorker):
         k: batch index in replicated k batches assigned to a particular worker
         '''
         assert self._grad_sending_buffer[index][k].shape == grad.shape
-        self._grad_sending_buffer[index][k]=grad
+        if self.rank in self._fail_workers:
+            # simulate some byzantine error here:
+            simulation_grad = err_simulation(grad, self._err_mode)
+            self._grad_sending_buffer[index][k]=simulation_grad
+        else:
+            self._grad_sending_buffer[index][k]=grad
 
     def _push_grads(self, grads, k):
         for i, grad in enumerate(reversed(grads)):

@@ -38,17 +38,19 @@ def _group_assign(world_size, group_size, rank):
     # sanity check we assume world size is divisable by group size
     assert world_size % group_size == 0
     np.random.seed(SEED_)
-
+    ret_group_dict={}
     k = world_size/group_size
     group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
+    for i, l in enumerate(group_list):
+        ret_group_dict[i]=l
     group_seeds = [0]*k
     if rank == 0:
-        return group_list, -1, group_seeds
+        return ret_group_dict, -1, group_seeds
     for i,group in enumerate(group_list):
         group_seeds[i] = np.random.randint(0, 20000)
         if rank in group:
             group_num = i
-    return group_list, group_num, group_seeds
+    return ret_group_dict, group_num, group_seeds
 
 
 def _load_data(dataset, seed):
@@ -96,7 +98,8 @@ def add_fit_args(parser):
     parser.add_argument('--network', type=str, default='LeNet', metavar='N',
                         help='which kind of network we are going to use, support LeNet and ResNet currently')
     parser.add_argument('--mode', type=str, default='normal', metavar='N',
-                        help='determine if we use normal averaged gradients or geometric median to udpate the model')
+                        help='determine if we use normal averaged gradients or geometric median (in normal mode)\
+                         or whether we use normal/majority vote in coded mode to udpate the model')
     parser.add_argument('--kill-threshold', type=float, default=7.0, metavar='KT',
                         help='timeout threshold which triggers the killing process (default: 7s)')
     parser.add_argument('--dataset', type=str, default='MNIST', metavar='N',
@@ -130,7 +133,7 @@ if __name__ == "__main__":
 
     args = add_fit_args(argparse.ArgumentParser(description='PyTorch MNIST Single Machine Test'))
 
-    if args.coding_method == "normal":
+    if args.coding_method == "baseline":
         train_loader = _load_data(dataset=args.dataset, seed=None)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
@@ -153,10 +156,11 @@ if __name__ == "__main__":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list}
+                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num}
+
         if rank == 0:
             coded_master = CodedMaster(comm=comm, **kwargs_master)
             coded_master.build_model()
