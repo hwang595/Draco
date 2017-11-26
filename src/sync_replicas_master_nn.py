@@ -12,6 +12,7 @@ from model_ops.resnet import *
 from model_ops.resnet_split import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 import hdmedians as hd
+from compress_gradient import decompress
 
 import torch
 
@@ -43,18 +44,26 @@ def accuracy(output, target, topk=(1,)):
 
 class GradientAccumulator(object):
 	'''a simple class to implement gradient aggregator like the `Conditional Accumulators` in tensorflow'''
-	def __init__(self, module, num_worker):
+	def __init__(self, module, num_worker, mode='None'):
 		# we will update this counter dynamically during the training process
 		# the length of this counter should be number of fc layers in the network
 		# we used list to contain gradients of layers
 		self.gradient_aggregate_counter = []
 		self.model_index_range = []
 		self.gradient_aggregator = []
+		self._mode = mode
 		
 		for param_idx, param in enumerate(module.parameters()):
 			tmp_aggregator = []
 			for worker_idx in range(num_worker):
-				tmp_aggregator.append(np.zeros((param.size())))
+				if self._mode == 'None':
+					tmp_aggregator.append(np.zeros((param.size())))
+				elif self._mode == 'compress':
+					_shape = param.size()
+					if len(_shape) == 1:
+						tmp_aggregator.append(bytearray(getsizeof(np.zeros((_shape[0]*2,)))))
+					else:
+						tmp_aggregator.append(bytearray(getsizeof(np.zeros(_shape))))
 			# initialize the gradient aggragator
 			self.gradient_aggregator.append(tmp_aggregator)
 			self.gradient_aggregate_counter.append(0)
@@ -71,9 +80,12 @@ class GradientAccumulator(object):
 		'''
 		reset the buffers in grad accumulator, not sure if this is necessary
 		'''
-		for i, tmp_aggregator in enumerate(self.gradient_aggregator):
-			for j, buf in enumerate(tmp_aggregator):
-				self.gradient_aggregator[i][j] = np.zeros(self.gradient_aggregator[i][j].shape)
+		if self._mode == 'compress':
+			pass
+		else:
+			for i, tmp_aggregator in enumerate(self.gradient_aggregator):
+				for j, buf in enumerate(tmp_aggregator):
+					self.gradient_aggregator[i][j] = np.zeros(self.gradient_aggregator[i][j].shape)
 
 
 class SyncReplicasMaster_NN(NN_Trainer):
@@ -241,7 +253,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		gradient_fetch_requests = [] # `graident_fetch_request` should have length of #fc_layer*num_grad_to_collect
 		for layer_idx, layer in enumerate(self.network.parameters()):
 			for k in range(self._num_grad_to_collect):
-				req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.DOUBLE], source=k+1, tag=88+layer_idx)
+				if self._compress_grad == 'compress':
+					req = self.comm.irecv(self.grad_accumulator.gradient_aggregator[layer_idx][k], source=k+1, tag=88+layer_idx)
+				else:
+					req = self.comm.Irecv([self.grad_accumulator.gradient_aggregator[layer_idx][k], MPI.DOUBLE], source=k+1, tag=88+layer_idx)
 				gradient_fetch_requests.append(req)
 		return gradient_fetch_requests
 
@@ -341,6 +356,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 		self._update_mode = kwargs['update_mode']
 		self._max_steps = kwargs['max_steps']
 		self._group_list = kwargs['group_list']
+		self._compress_grad = kwargs['compress_grad']
 		self._group_size = len(self._group_list[0])
 
 	def build_model(self):
@@ -355,7 +371,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 			self.network=FC_NN_Split()
 
 		# assign a gradient accumulator to collect gradients from workers
-		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1)
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
 		self.init_model_shapes()
 
 	def init_model_shapes(self):
@@ -399,7 +415,12 @@ class CodedMaster(SyncReplicasMaster_NN):
 			# wait for enough gradients to be aggregated:
 			while not enough_gradients_received:
 				status = MPI.Status()
-				MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
+				if self._compress_grad == "None":
+					MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
+				elif self._compress_grad == "compress":
+					_, received_msg=MPI.Request.waitany(requests=gradient_fetch_requests, status=status)
+					received_grad=decompress(received_msg)
+
 				if status.tag-88 in self.grad_accumulator.model_index_range:
 					if not self._first_grad_received:
 						self._first_grad_received=True
@@ -407,7 +428,7 @@ class CodedMaster(SyncReplicasMaster_NN):
 
 					layer_index = status.tag-88
 
-					# issue here: sometimes this can be zero
+					# BUG: sometimes this can be zero
 					#received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					# do gradient shape check here

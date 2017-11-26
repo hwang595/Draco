@@ -9,6 +9,7 @@ from model_ops.resnet import *
 from model_ops.resnet_split import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 from model_ops.utils import err_simulation
+from compress_gradient import compress
 
 import torch
 from torch.autograd import Variable
@@ -319,6 +320,7 @@ class CodedWorker(DistributedWorker):
         self._group_seeds = kwargs['group_seeds'] 
         self._group_num = kwargs['group_num'] # which group this worker belongs to
         self._group_size = len(self._group_list[0])
+        self._compress_grad = kwargs['compress_grad']
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
 
@@ -407,10 +409,18 @@ class CodedWorker(DistributedWorker):
                 req_send_check[-1].wait()
             if self.rank in self._fail_workers:
                 simulation_grad = err_simulation(grad, self._err_mode)
-                req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+i)
+                if self._compress_grad=='compress':
+                    _compressed_grad = compress(simulation_grad)
+                    req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                else:
+                    req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+i)
                 req_send_check.append(req_isend)
             else:
-                req_isend = self.comm.Isend([grad, MPI.DOUBLE], dest=0, tag=88+i)
+                if self._compress_grad=='compress':
+                    _compressed_grad = compress(grad)
+                    req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                else:
+                    req_isend = self.comm.Isend([grad, MPI.DOUBLE], dest=0, tag=88+i)
                 req_send_check.append(req_isend)
         req_send_check[-1].wait()
 

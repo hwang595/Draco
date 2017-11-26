@@ -16,4 +16,5 @@ python distributed_nn.py \
 --worker-fail=2 \
 --group-size=3 \
 --err-case=worst_case \
+--compress-grad=compress \
 --train-dir=/home/ubuntu/

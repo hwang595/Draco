@@ -124,6 +124,8 @@ def add_fit_args(parser):
                         help='in majority vote how many worker nodes are in a certain group')
     parser.add_argument('--err-case', type=str, default='best_case', metavar='N',
                         help='best_case or worst_case will affect the time cost for majority vote in adversarial coding')
+    parser.add_argument('--compress-grad', type=str, default='compress', metavar='N',
+                        help='compress/none indicate if we compress the gradient matrix before communication')    
     args = parser.parse_args()
     return args
 
@@ -139,10 +141,10 @@ if __name__ == "__main__":
         train_loader = _load_data(dataset=args.dataset, seed=None)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode}
+                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode}
+                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad}
         if rank == 0:
             master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
@@ -158,11 +160,11 @@ if __name__ == "__main__":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode}
+                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode, 'compress_grad':args.compress_grad}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
-                    'err_case':args.err_case}
+                    'err_case':args.err_case, 'compress_grad':args.compress_grad}
 
         if rank == 0:
             coded_master = CodedMaster(comm=comm, **kwargs_master)
