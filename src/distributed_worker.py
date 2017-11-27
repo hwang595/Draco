@@ -85,6 +85,7 @@ class DistributedWorker(NN_Trainer):
         self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
+        self._compress_grad = kwargs['compress_grad']        
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
 
         # this one is going to be used to avoid fetch the weights for multiple times
@@ -188,13 +189,19 @@ class DistributedWorker(NN_Trainer):
                     if self.rank in self._fail_workers:
                         # simulate some byzantine error here:
                         simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
-                        req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                        if self._compress_grad=='compress':
+                            _compressed_grad = compress(simulation_grad)
+                            req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
+                        else:
+                            req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     else:
-                        req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+                        if self._compress_grad=='compress':
+                            _compressed_grad = compress(init_grad_data)
+                            req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
+                        else:
+                            req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
                     req_send_check.append(req_isend)
-                    
-                    req_send_check=self.network.backward_normal(logits_1.grad, communicator=self.comm, req_send_check=req_send_check, 
-                                    cur_step=self.cur_step, fail_workers=self._fail_workers, err_mode=self._err_mode)
+                    req_send_check=self.network.backward_normal(logits_1.grad, self.comm, req_send_check, self.cur_step, self._fail_workers, self._err_mode, self._compress_grad)
                     req_send_check[-1].wait()
                     backward_duration = time.time()-backward_start_time
                     # on the end of a certain iteration

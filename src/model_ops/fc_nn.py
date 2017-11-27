@@ -1,14 +1,18 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import sys
 
 import pandas as pd
 import numpy as np
+import blosc
 from torch.autograd import Variable
 
 from mpi4py import MPI
 
 from utils import err_simulation
+sys.path.insert(0, '../compress_gradient')
+from compress_gradient import compress
 
 # we use fc nn here for our simple case
 class FC_NN(nn.Module):
@@ -84,7 +88,7 @@ class FC_NN_Split(nn.Module):
     @property
     def fetch_init_channel_index(self):
         return self._init_channel_index
-    def backward_normal(self, g, communicator, req_send_check, cur_step, fail_workers, err_mode):
+    def backward_normal(self, g, communicator, req_send_check, cur_step, fail_workers, err_mode, compress_grad):
         mod_avail_index = len(self.full_modules)-1
         #channel_index = len(self.full_modules)*2-2
         channel_index = self._init_channel_index - 2
@@ -105,9 +109,17 @@ class FC_NN_Split(nn.Module):
                         ############################### simulation here #########################################
                         if communicator.Get_rank() in fail_workers:
                             simulation_grad = err_simulation(grad=grads, mode=err_mode)
-                            req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            if compress_grad == 'compress':
+                                _compressed_grad = compress(simulation_grad)
+                                req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                            else:
+                                req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
                         else:
-                            req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                            if compress_grad == 'compress':
+                                _compressed_grad = compress(grads)
+                                req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                            else:                     
+                                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                         #########################################################################################
                         req_send_check.append(req_isend)
                         # update counters
@@ -123,9 +135,17 @@ class FC_NN_Split(nn.Module):
                             ############################### simulation here #########################################
                             if communicator.Get_rank() in fail_workers:
                                 simulation_grad = err_simulation(grad=grads, mode=err_mode)
-                                req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                                if compress_grad == 'compress':
+                                    _compressed_grad = compress(simulation_grad)
+                                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                                else:
+                                    req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
-                                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                                if compress_grad == 'compress':
+                                    _compressed_grad = compress(grads)
+                                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                                else:
+                                    req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             #########################################################################################
                             req_send_check.append(req_isend)
                             channel_index-=1
@@ -135,9 +155,17 @@ class FC_NN_Split(nn.Module):
                             ############################### simulation here #########################################
                             if communicator.Get_rank() in fail_workers:
                                 simulation_grad = err_simulation(grad=grads, mode=err_mode)
-                                req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                                if compress_grad == 'compress':
+                                    _compressed_grad = compress(simulation_grad)
+                                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                                else:
+                                    req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             else:
-                                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                                if compress_grad == 'compress':
+                                    _compressed_grad = compress(grads)
+                                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                                else:
+                                    req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
                             #########################################################################################
                             req_send_check.append(req_isend)
                             channel_index-=1
@@ -152,9 +180,17 @@ class FC_NN_Split(nn.Module):
             ############################### simulation here #########################################
             if communicator.Get_rank() in fail_workers:
                 simulation_grad = err_simulation(grad=grads, mode=err_mode)
-                req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                if compress_grad == 'compress':
+                    _compressed_grad = compress(simulation_grad)
+                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                else:
+                    req_isend = communicator.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+channel_index)
             else:
-                req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
+                if compress_grad == 'compress':
+                    _compressed_grad = compress(grads)
+                    req_isend = communicator.isend(_compressed_grad, dest=0, tag=88+channel_index)
+                else:
+                    req_isend = communicator.Isend([grads, MPI.DOUBLE], dest=0, tag=88+channel_index)
             #########################################################################################
             req_send_check.append(req_isend)
         return req_send_check

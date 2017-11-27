@@ -113,6 +113,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		self._expected_grad_to_recv = kwargs['kill_threshold']
 		self._max_steps = kwargs['max_steps']
 		self._update_mode = kwargs['update_mode']
+        self._compress_grad = kwargs['compress_grad']		
 
 	def build_model(self):
 		# build network
@@ -157,7 +158,11 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			# wait for enough gradients to be aggregated:
 			while not enough_gradients_received:
 				status = MPI.Status()
-				MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
+				if self._compress_grad == "None":
+					MPI.Request.Waitany(requests=gradient_fetch_requests, status=status)
+				elif self._compress_grad == "compress":
+					_, received_msg=MPI.Request.waitany(requests=gradient_fetch_requests, status=status)
+					received_grad=decompress(received_msg)
 
 				if status.tag-88 in self.grad_accumulator.model_index_range:
 					if not self._first_grad_received:
@@ -165,7 +170,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
 						grad_gather_start_time = time.time()
 
 					layer_index = status.tag-88
-					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
+					if self._compress_grad == "None":
+						received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					
 					# do gradient shape check here
 					assert (received_grad.shape == self._model_shapes[layer_index])
