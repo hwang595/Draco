@@ -113,7 +113,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 		self._expected_grad_to_recv = kwargs['kill_threshold']
 		self._max_steps = kwargs['max_steps']
 		self._update_mode = kwargs['update_mode']
-        self._compress_grad = kwargs['compress_grad']		
+		self._compress_grad = kwargs['compress_grad']
 
 	def build_model(self):
 		# build network
@@ -127,7 +127,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 			self.network=FC_NN_Split()
 
 		# assign a gradient accumulator to collect gradients from workers
-		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1)
+		self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
 		self.init_model_shapes()
 
 	def start(self):
@@ -191,26 +191,31 @@ class SyncReplicasMaster_NN(NN_Trainer):
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
 
 			if self._update_mode == "normal":
+				method_start = time.time()
 				self._avg_received_grads()
+				method_duration = time.time()-method_start
 			elif self._update_mode == "geometric_median":
+				method_start = time.time()
 				self._get_geo_median()
+				method_duration = time.time()-method_start
 
 			# update using SGD method
+			update_start = time.time()
 			tmp_module = []
 			for param_idx, param in enumerate(self.network.parameters()):
 				updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
 				tmp_module.append(updated_model)
 
 			# update `state_dict` in pytorch modules
-			print("Master start to update the model")
 			self.model_update(tmp_module)
-
+			update_duration = time.time() - update_start
 			# reset essential elements
 			self.meset_grad_buffer()
 			self.grad_accumulator.meset_everything()
 			# save model for validation in a pre-specified frequency
 			if self.cur_step%self._eval_freq == 0:
 				self._save_model(file_path=self._generate_model_path())
+			print("Master Step: {}, Method Time Cost: {}, Update Time Cost: {}".format(self.cur_step, method_duration, update_duration))
 			self.cur_step += 1
 
 	def init_model_shapes(self):
