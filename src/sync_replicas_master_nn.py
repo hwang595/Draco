@@ -4,6 +4,7 @@ import copy
 
 from mpi4py import MPI
 import numpy as np
+from sys import getsizeof
 
 from nn_ops import NN_Trainer
 
@@ -430,7 +431,8 @@ class CodedMaster(SyncReplicasMaster_NN):
 
 					# BUG: sometimes this can be zero
 					#received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
-					received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
+					if self._compress_grad == "None":
+						received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
 					# do gradient shape check here
 					assert (received_grad.shape == self._model_shapes[layer_index])
 
