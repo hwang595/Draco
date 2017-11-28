@@ -14,6 +14,9 @@ from utils import err_simulation
 sys.path.insert(0, '../compress_gradient')
 from compress_gradient import compress
 
+SEED_=428
+torch.manual_seed(SEED_)
+
 # we use fc nn here for our simple case
 class FC_NN(nn.Module):
     def __init__(self):

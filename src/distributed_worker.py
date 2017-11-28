@@ -179,7 +179,7 @@ class DistributedWorker(NN_Trainer):
                     # backward step
                     backward_start_time = time.time()
                     loss.backward()
-                    computation_time = time.time() - iter_start_time
+                    computation_time = time.time() - forward_start_time
                     # we can send the grad of this very first layer to parameter server right here before
                     # the chain rule is begining
                     req_send_check = []
