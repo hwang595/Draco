@@ -460,14 +460,16 @@ class CodedMaster(SyncReplicasMaster_NN):
 					enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
 			
 			if self._update_mode == "normal":
+				method_start = time.time()
 				self._avg_received_grads()
+				method_duration = time.time() - method_start
 			elif self._update_mode == "maj_vote":
 				# under development, stay tunned
-				search_maj_start = time.time()
+				method_start = time.time()
 				self._grad_majority_vote()
-				search_maj_duration = time.time() - search_maj_start
-				print("Master at Step: {} , Majority Vote Duration: {}".format(self.cur_step, search_maj_duration))
+				method_duration = time.time() - method_start
 
+			update_start = time.time()
 			# update using SGD method
 			tmp_module = []
 			for param_idx, param in enumerate(self.network.parameters()):
@@ -475,15 +477,15 @@ class CodedMaster(SyncReplicasMaster_NN):
 				tmp_module.append(updated_model)
 
 			# update `state_dict` in pytorch modules
-			print("Master start to update the model")
 			self.model_update(tmp_module)
-
+			update_duration = time.time() - update_start
 			# reset essential elements
 			self.meset_grad_buffer()
 			self.grad_accumulator.meset_everything()
 			# save model for validation in a pre-specified frequency
 			if self.cur_step%self._eval_freq == 0:
 				self._save_model(file_path=self._generate_model_path())
+			print("Master Step: {}, Method Time Cost: {}, Update Time Cost: {}".format(self.cur_step, method_duration, update_duration))
 			self.cur_step += 1
 
 	def aggregate_gradient(self, gradient, layer_idx, source):
