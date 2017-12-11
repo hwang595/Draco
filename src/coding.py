@@ -1,26 +1,31 @@
 import numpy as np
 from math import exp, pi
 
-def construct_c(n):
+
+def search_w(n, s):
+    # params: n: number of workers
+    # params: s: number of fail workers
+    C = _construct_c(n)
+    _hat_s = int(2*s+1)
+    W = _construct_w(n, _hat_s)
+    C_1 = C[:, 0:_hat_s]
+    return _cls_solving(C_1, W)
+
+
+def _construct_c(n):
     # complex matrix here
     _shape = (n, n)
     C = np.zeros(_shape, dtype=complex)
     for p in range(_shape[0]):
         for q in range(_shape[1]):
             if q>=p:
-                C[p, q]=0+exp(-2*pi*p*q/n)*1j
+                if p == 0 or q == 0:
+                    C[p, q] = 1+0j
+                else:
+                    C[p, q]=0+exp(-2*pi*p*q/n)*1j
             else:
                 C[p, q] = C[q, p]
     return C
-
-
-def search_w(n, s, C):
-    # params: n: number of workers
-    # params: s: number of fail workers
-    _hat_s = int(2*s+1)
-    W = _construct_w(n, _hat_s)
-    C_1 = C[:, 0:_hat_s]
-    return _cls_solving(C_1, W)
 
 
 def _construct_w(n, hat_s):
@@ -41,8 +46,6 @@ def _construct_w(n, hat_s):
 
 def _cls_solving(C_1, fake_W):
     # return Q here:
-    print(C_1)
-    print
     _shape = np.transpose(C_1).shape
     Q = np.ones(_shape,dtype=complex)
     for i in range(_shape[1]):
@@ -57,10 +60,14 @@ def _cls_solving(C_1, fake_W):
     W = np.dot(C_1, Q)
     return W, Q
 
+
 def _cls_solver(A, b):
     return np.dot(np.dot(np.linalg.inv(np.dot(np.transpose(A), A)), np.transpose(A)),b)
 
+
 if __name__ == "__main__":
     np.set_printoptions(precision=4,linewidth=200.0)
-    C = construct_c(5)
-    W, Q = search_w(5, 1, C)
+    W, Q = search_w(5, 1)
+    print("W is: ")
+    print
+    print(W)
