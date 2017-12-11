@@ -395,7 +395,7 @@ class CodedWorker(DistributedWorker):
                     # backward step
                     backward_start_time = time.time()
                     loss.backward()
-                    computation_time = time.time() - iter_start_time
+                    computation_time = time.time() - forward_start_time
 
                     init_grad_data = logits_1.grad.data.numpy()
 
