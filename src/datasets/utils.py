@@ -18,7 +18,7 @@ class DynamicSampler(object):
     def __len__(self):
         return self.max_size
 
-def get_batch(dataset, indices=None, num_workers=2):
+def get_batch(dataset, indices=None):
     sampler = DynamicSampler(len(indices))
     loader = data.DataLoader(dataset, 
                   batch_size=len(indices), 

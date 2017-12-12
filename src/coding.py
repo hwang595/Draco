@@ -1,7 +1,6 @@
 import numpy as np
 from math import exp, pi
 
-
 def search_w(n, s):
     # params: n: number of workers
     # params: s: number of fail workers
@@ -9,7 +8,9 @@ def search_w(n, s):
     _hat_s = int(2*s+1)
     W = _construct_w(n, _hat_s)
     C_1 = C[:, 0:_hat_s]
-    return _cls_solving(C_1, W)
+    C_2 = C[:, _hat_s:]
+    W, fake_W = _cls_solving(C_1, W)
+    return W, fake_W, C_2
 
 
 def _construct_c(n):
@@ -58,16 +59,20 @@ def _cls_solving(C_1, fake_W):
         _q=_cls_solver(_A, _b)
         Q[1:,i] = _q.reshape(Q[1:,i].shape)
     W = np.dot(C_1, Q)
-    return W, Q
+    return W, fake_W
 
 
 def _cls_solver(A, b):
-    return np.dot(np.dot(np.linalg.inv(np.dot(np.transpose(A), A)), np.transpose(A)),b)
+    return np.dot(np.dot(np.linalg.inv(np.dot(_array_getH(A), A)), _array_getH(A)),b)
+
+
+def _array_getH(ndarray):
+    # get conjugate transpose of a np.ndarray
+    return ndarray.conj().T
 
 
 if __name__ == "__main__":
     np.set_printoptions(precision=4,linewidth=200.0)
-    W, Q = search_w(5, 1)
-    print("W is: ")
-    print
-    print(W)
+    W, fake_W, C_2 = search_w(5, 1)
+    W_perp = _array_getH(C_2)
+    print(np.dot(W_perp, W))
