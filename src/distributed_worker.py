@@ -491,6 +491,7 @@ class CyclicWorker(DistributedWorker):
                 batch_bias += self.batch_size*self.num_workers
                 batch_idx += 1
                 grad_collector = {}
+                _precision_counter = 0
                 # iteration start here:
                 while True:
                     # the worker shouldn't know the current global step except received the message from parameter server
@@ -516,7 +517,7 @@ class CyclicWorker(DistributedWorker):
                     for b in range(self._hat_s):
                         local_batch_indices = np.where(self._fake_W[self.rank-1]!=0)[0]
                         _batch_bias = local_batch_indices[b]
-                        _precision_counter = 0
+                        
                         train_image_batch = gloabl_image_batch[_batch_bias:_batch_bias+self.batch_size,:]
                         train_label_batch = gloabl_label_batch[_batch_bias:_batch_bias+self.batch_size]
 
@@ -548,6 +549,7 @@ class CyclicWorker(DistributedWorker):
                     print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}'.format(self.rank,
                         self.cur_step, num_epoch, batch_idx * self.batch_size, len(training_set), 
                         (100. * (batch_idx * self.batch_size) / len(training_set)), loss.data[0], time.time()-iter_start_time, computation_time, _precision_counter/self._hat_s))
+                    break
 
     def _send_grads(self, grad_collector):
         '''
