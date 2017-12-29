@@ -455,9 +455,13 @@ class CyclicWorker(DistributedWorker):
         self._W = kwargs['encoding_matrix']
         self._fake_W = kwargs['fake_W']
         self._seed = kwargs['seed']
-        self._hat_s = int(2*kwargs['worker_fail']+1)
+        self._num_fail = kwargs['worker_fail'] 
+        self._hat_s = int(2*self._num_fail+1)
+        self._err_mode = kwargs['err_mode']
         # this one is going to be used to avoid fetch the weights for multiple times
-        self._fail_workers = []
+        # randomly generate fail worker index
+        #self._fail_workers = np.random.choice(np.arange(1, self.num_workers+1), size=self._num_fail, replace=False)
+        self._fail_workers = np.arange(1, self._num_fail+1)
         self._layer_cur_step = []
 
     def train(self, training_set):
@@ -558,21 +562,22 @@ class CyclicWorker(DistributedWorker):
         req_send_check = []
         for i, param in enumerate(reversed(grad_collector[grad_collector.keys()[0]])):
             aggregated_grad = np.zeros(param.shape, dtype=complex)
+            # calculate combined gradients
             for k, v in grad_collector.iteritems():
                 aggregated_grad = np.add(aggregated_grad, np.dot(self._W[self.rank-1][k], v[len(v)-i-1]))
-                # send grad to master
+            
+            # send grad to master
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
-                # we will consider simulating the fail worker later
-                #if self.rank in self._fail_workers:
-                #    simulation_grad = err_simulation(grad, self._err_mode)
-                #    _compressed_grad = compress(simulation_grad)
-                #    req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
-                #    req_send_check.append(req_isend)
-                #else:
-            _compressed_grad = compress(aggregated_grad)
-            req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
-            req_send_check.append(req_isend)
+            if self.rank in self._fail_workers:
+                simulation_grad = err_simulation(aggregated_grad, self._err_mode)
+                _compressed_grad = compress(simulation_grad)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_send_check.append(req_isend)
+            else:
+                _compressed_grad = compress(aggregated_grad)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_send_check.append(req_isend)
         req_send_check[-1].wait()
 
 if __name__ == "__main__":
