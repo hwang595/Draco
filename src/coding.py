@@ -1,16 +1,21 @@
 import numpy as np
-from math import exp, pi
 
 def search_w(n, s):
     # params: n: number of workers
     # params: s: number of fail workers
     C = _construct_c(n)
+    C = np.dot(1/np.sqrt(n), C)
     _hat_s = int(2*s+1)
     W = _construct_w(n, _hat_s)
-    C_1 = C[:, 0:_hat_s]
-    C_2 = C[:, _hat_s:]
+    C_1 = C[:, 0:n-_hat_s+1]
+    C_2 = C[:, n-_hat_s+1:]
     W, fake_W = _cls_solving(C_1, W)
-    return W, fake_W, C_2
+    W_perp = _array_getH(C_2)
+    # prepare matrix S
+    s_tmp = np.zeros((1, n-_hat_s+1),dtype=complex)
+    s_tmp[0][0] = 1.0+0.0j
+    S = np.dot(s_tmp, _array_getH(C_1))
+    return W, fake_W, W_perp, S
 
 
 def _construct_c(n):
@@ -23,7 +28,7 @@ def _construct_c(n):
                 if p == 0 or q == 0:
                     C[p, q] = 1+0j
                 else:
-                    C[p, q]=0+exp(-2*pi*p*q/n)*1j
+                    C[p, q]=0+np.exp(-2*np.pi*p*q*1j/n)
             else:
                 C[p, q] = C[q, p]
     return C
@@ -73,6 +78,7 @@ def _array_getH(ndarray):
 
 if __name__ == "__main__":
     np.set_printoptions(precision=4,linewidth=200.0)
-    W, fake_W, C_2 = search_w(5, 1)
-    W_perp = _array_getH(C_2)
+    W, fake_W, W_perp, S = search_w(7, 2)
     print(np.dot(W_perp, W))
+    print
+    print(S)

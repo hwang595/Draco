@@ -1,13 +1,13 @@
-mpirun -n 7 --hostfile hosts_address \
+mpirun -n 8 \
 python distributed_nn.py \
 --lr=0.01 \
 --network=FC \
 --dataset=MNIST \
---batch-size=128 \
+--batch-size=4 \
 --comm-type=Bcast \
---num-aggregate=6 \
+--num-aggregate=7 \
 --mode=maj_vote \
---coding-method=maj_vote \
+--coding-method=cyclic \
 --eval-freq=2000 \
 --epochs=50 \
 --err-mode=constant \

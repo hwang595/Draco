@@ -24,6 +24,7 @@ from data_loader_ops.my_data_loader import DataLoader
 
 from distributed_worker import *
 from sync_replicas_master_nn import *
+from coding import search_w
 
 #for tmp solution
 from datasets import MNISTDataset
@@ -65,11 +66,11 @@ def _load_data(dataset, seed):
                        transforms.Normalize((0.1307,), (0.3081,))]))
         train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
     elif dataset == "Cifar10":
-        trainset = datasets.CIFAR10(root='./cifar10_data', train=True,
+        training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
                                                 download=True, transform=transforms.ToTensor())
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
                                                   shuffle=True)
-    return train_loader
+    return train_loader, training_set
 
 def add_fit_args(parser):
     """
@@ -165,15 +166,22 @@ if __name__ == "__main__":
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
                     'err_case':args.err_case, 'compress_grad':args.compress_grad}
-
+    elif args.coding_method == "cyclic":
+        W, fake_W, W_perp, S = search_w(world_size-1, args.worker_fail)
+        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'compress_grad':args.compress_grad, 'W_perp':W_perp, 'worker_fail':args.worker_fail,
+                    'decoding_S':S}
+        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
+                    'comm_method':args.comm_type, 'adversery':args.adversarial, 'worker_fail':args.worker_fail, 'err_mode':args.err_mode, 'compress_grad':args.compress_grad,
+                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W}
         if rank == 0:
-            coded_master = CodedMaster(comm=comm, **kwargs_master)
-            coded_master.build_model()
-            print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
-            coded_master.start()
+            new_master = CyclicMaster(comm=comm, **kwargs_master)
+            new_master.build_model()
+            print("I am the master: the world size is {}, cur step: {}".format(new_master.world_size, new_master.cur_step))
+            new_master.start()
         else:
-            train_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
-            coded_worker = CodedWorker(comm=comm, **kwargs_worker)
-            coded_worker.build_model()
-            print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
-            coded_worker.train(train_loader=train_loader)
+            _, training_set = _load_data(dataset=args.dataset, seed=SEED_)
+            new_worker = CyclicWorker(comm=comm, **kwargs_worker)
+            new_worker.build_model()
+            print("I am worker: {} in all {} workers, next step: {}".format(new_worker.rank, new_worker.world_size-1, new_worker.next_step))
+            new_worker.train(training_set=training_set)
