@@ -5,6 +5,7 @@ import copy
 from mpi4py import MPI
 import numpy as np
 from scipy import linalg as LA
+from scipy import fftpack as FT
 from sys import getsizeof
 
 from nn_ops import NN_Trainer
@@ -583,7 +584,8 @@ class CyclicMaster(SyncReplicasMaster_NN):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure value fetched from ps is 1
         self.async_bcast_step()
-
+        # for debug print
+        np.set_printoptions(precision=4,linewidth=200.0)
         # fake test here:
         for i in range(1, self._max_steps):
             # switch back to training mode
@@ -632,12 +634,19 @@ class CyclicMaster(SyncReplicasMaster_NN):
                 for j in self.grad_accumulator.gradient_aggregate_counter:
                     enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
             
-            #self._decoding()
+            e_start_time = time.time()
+            self._decoding()
+            e_duration = time.time() - e_start_time
+            print(e_duration)
+            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+            exit()
             # calling Cython implement here
             # TODO(hwang): check if this is really better than Numpy version
             method_start = time.time()
             for layer_index, R in enumerate(self._R):
                 epsilon=decoding(self._W_perp, R, self.num_workers, self.s)
+                #print(R)
+                #print("="*40)
                 bar_R = R-epsilon
                 decoded_grad = np.dot(self._S, bar_R)
                 self._grad_aggregate_buffer[layer_index] = np.real(decoded_grad)
@@ -672,7 +681,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
     def _decoding(self):
         e_start_time = time.time()
         for layer_index, R in enumerate(self._R):
-            #assert self._W_perp.shape[1] == R.shape[0]
             E_2 = np.dot(self._W_perp, R)
             _shape = E_2.shape
             _s = _shape[0]/2
@@ -691,6 +699,8 @@ class CyclicMaster(SyncReplicasMaster_NN):
             exit()
             '''
             alpha = _cls_solver(np.transpose(_X), _y.reshape(_y.shape[0], 1))
+            print(alpha)
+            print("----------------------------------------------------------------------")
             # we want E_1 and E_2 n by d here:
             E_1=self._obtain_E(alpha, tmp_y, _s)
             # concatenate E_1 and E_2 to obtain E
@@ -698,9 +708,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
             # obtain epsilon by taking IFT of E:
             epsilon = self._obtain_epsilon(E)
         e_duration = time.time()-e_start_time
-        print("E duration: {}".format(e_duration))
-        print("#####################################################################")
-        exit()
 
     def _obtain_E(self, alpha, y, s):
         # obtain E_1 in shape of n-2s by d
@@ -711,7 +718,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         return np.transpose(_processing_y[:, s:])
 
     def _obtain_epsilon(self, E):
-        return np.fft.ifft(a=E, axis=1)
+        return FT.ifft(E, axis=1)
 
 def _cls_solver(A, b):
     return np.dot(np.dot(np.linalg.inv(np.dot(_array_getH(A), A)), _array_getH(A)),b)
