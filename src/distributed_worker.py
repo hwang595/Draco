@@ -450,7 +450,6 @@ class CyclicWorker(DistributedWorker):
         self.lr = kwargs['learning_rate']
         self.network_config = kwargs['network']
         self.comm_type = kwargs['comm_method']
-        self._adversery = kwargs['adversery']
         self._compress_grad = kwargs['compress_grad']
         self._W = kwargs['encoding_matrix']
         self._fake_W = kwargs['fake_W']
@@ -462,6 +461,7 @@ class CyclicWorker(DistributedWorker):
         # randomly generate fail worker index
         #self._fail_workers = np.random.choice(np.arange(1, self.num_workers+1), size=self._num_fail, replace=False)
         self._fail_workers = np.arange(1, self._num_fail+1)
+        #self._fail_workers = []
         self._layer_cur_step = []
 
     def train(self, training_set):
@@ -471,6 +471,8 @@ class CyclicWorker(DistributedWorker):
         # do some sync check here
         assert(self.update_step())
         assert(self.cur_step == STEP_START_)
+        # for debug print
+        np.set_printoptions(precision=4,linewidth=200.0)
 
         # number of batches in one epoch
         num_batch_per_epoch = len(training_set) / self.batch_size
@@ -513,15 +515,14 @@ class CyclicWorker(DistributedWorker):
                     # TODO(hwang): return layer request here and do weight before the forward step begins, rather 
                     # than implement the wait() in the fetch function
                     fetch_weight_start_time = time.time()
+
                     # fetch weight
                     self.async_fetch_weights_bcast()
                     fetch_weight_duration = time.time() - fetch_weight_start_time
-
                     # calculating on coded batches
                     for b in range(self._hat_s):
                         local_batch_indices = np.where(self._fake_W[self.rank-1]!=0)[0]
-                        _batch_bias = local_batch_indices[b]
-                        
+                        _batch_bias = local_batch_indices[b]*self.batch_size
                         train_image_batch = gloabl_image_batch[_batch_bias:_batch_bias+self.batch_size,:]
                         train_label_batch = gloabl_label_batch[_batch_bias:_batch_bias+self.batch_size]
 
@@ -543,9 +544,8 @@ class CyclicWorker(DistributedWorker):
 
                         init_grad_data = logits_1.grad.data.numpy()
                         grads=self.network.backward_coded(logits_1.grad, self.cur_step)
-
                         # gather each batch calculated by this worker
-                        grad_collector[_batch_bias] = grads
+                        grad_collector[_batch_bias/self.batch_size] = grads
                         _prec1, _ = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                         _precision_counter += _prec1.numpy()[0]
                     # send linear combinations of gradients of multiple batches
@@ -565,12 +565,11 @@ class CyclicWorker(DistributedWorker):
             # calculate combined gradients
             for k, v in grad_collector.iteritems():
                 aggregated_grad = np.add(aggregated_grad, np.dot(self._W[self.rank-1][k], v[len(v)-i-1]))
-            
             # send grad to master
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
             if self.rank in self._fail_workers:
-                simulation_grad = err_simulation(aggregated_grad, self._err_mode)
+                simulation_grad = err_simulation(aggregated_grad, self._err_mode, cyclic=True)
                 _compressed_grad = compress(simulation_grad)
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
                 req_send_check.append(req_isend)

@@ -634,22 +634,10 @@ class CyclicMaster(SyncReplicasMaster_NN):
                 for j in self.grad_accumulator.gradient_aggregate_counter:
                     enough_gradients_received = enough_gradients_received and (j >= self._num_grad_to_collect)
             
-            e_start_time = time.time()
-            self._decoding()
-            e_duration = time.time() - e_start_time
-            print(e_duration)
-            print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-            exit()
-            # calling Cython implement here
-            # TODO(hwang): check if this is really better than Numpy version
             method_start = time.time()
             for layer_index, R in enumerate(self._R):
-                epsilon=decoding(self._W_perp, R, self.num_workers, self.s)
-                #print(R)
-                #print("="*40)
-                bar_R = R-epsilon
-                decoded_grad = np.dot(self._S, bar_R)
-                self._grad_aggregate_buffer[layer_index] = np.real(decoded_grad)
+                decoded_grad=self._decoding(R)
+                self._grad_aggregate_buffer[layer_index] = np.real(decoded_grad)/self.num_workers
             method_duration = time.time()-method_start
             
             update_start = time.time()
@@ -678,47 +666,43 @@ class CyclicMaster(SyncReplicasMaster_NN):
         assert self._R[layer_index][src-1].shape == recv_grad.shape
         self._R[layer_index][src-1] = recv_grad
 
-    def _decoding(self):
-        e_start_time = time.time()
-        for layer_index, R in enumerate(self._R):
-            E_2 = np.dot(self._W_perp, R)
-            _shape = E_2.shape
-            _s = _shape[0]/2
-            _d = _shape[1]
-            _X = np.take(E_2, np.array([range(-i-(_s+1), -i-2+1) for i in range(_s)]).reshape(-1), axis=0).reshape((_s, _s*_d), order='F')
-            # we use tmp_y as the start point to obtain the full E matrix
-            tmp_y = np.take(E_2, np.array([-i-1 for i in range(_s)]), axis=0)
-            _y = tmp_y.reshape(-1, order='F')
-            # debug settings:
-            '''
-            print(E_2[:, 0])
-            print("=======================================")
-            print(np.transpose(_X)[0:2, :])
-            print("=======================================")
-            print(_y.reshape(_y.shape[0], 1)[0:2])
-            exit()
-            '''
-            alpha = _cls_solver(np.transpose(_X), _y.reshape(_y.shape[0], 1))
-            print(alpha)
-            print("----------------------------------------------------------------------")
-            # we want E_1 and E_2 n by d here:
-            E_1=self._obtain_E(alpha, tmp_y, _s)
-            # concatenate E_1 and E_2 to obtain E
-            E = np.concatenate((E_1, E_2), axis=0)
-            # obtain epsilon by taking IFT of E:
-            epsilon = self._obtain_epsilon(E)
-        e_duration = time.time()-e_start_time
+    def _decoding(self, R):
+        E_2 = np.dot(self._W_perp, R)
+        epsilon_2 = self._obtain_epsilon(E_2)
 
-    def _obtain_E(self, alpha, y, s):
+        _shape = E_2.shape
+        _s = _shape[0]/2
+        _d = _shape[1]
+        _X = np.take(E_2, np.array([range(-i-(_s+1), -i-2+1) for i in range(_s)]).reshape(-1), axis=0).reshape((_s, _s*_d), order='F')
+        # we use tmp_y as the start point to obtain the full E matrix
+        tmp_y = np.take(E_2, np.array([-i-1 for i in range(_s)]), axis=0)
+        _y = tmp_y.reshape(-1, order='F')
+        alpha = _cls_solver(np.transpose(_X), _y.reshape(_y.shape[0], 1))
+
+        # we want E_1 and E_2 n by d here:
+        E_1=self._obtain_E(alpha, E_2, _s)
+        # concatenate E_1 and E_2 to obtain E
+        E = np.concatenate((E_1, E_2), axis=0) 
+
+        # obtain epsilon by taking IFT of E:
+        epsilon = self._obtain_epsilon(E) * np.sqrt(self.num_workers)
+        # TODO(hwang): try to figure out position issues for IFT
+        epsilon = np.roll(epsilon, _s-1, axis=0)
+        bar_R = R-epsilon
+        decoded_grad = np.dot(self._S, bar_R)
+        return decoded_grad
+
+    def _obtain_E(self, alpha, E_2, s):
         # obtain E_1 in shape of n-2s by d
-        _processing_y = np.transpose(y)
+        #_processing_y = np.transpose(y)
+        _processing_y = np.transpose(E_2)[:, -s:]
         for i in range(self.num_workers-2*s):
             tmp = np.dot(_processing_y[:,-s:], alpha)
             _processing_y = np.concatenate((_processing_y, tmp), axis=1)
         return np.transpose(_processing_y[:, s:])
 
     def _obtain_epsilon(self, E):
-        return FT.ifft(E, axis=1)
+        return FT.ifft(E, axis=0)
 
 def _cls_solver(A, b):
     return np.dot(np.dot(np.linalg.inv(np.dot(_array_getH(A), A)), _array_getH(A)),b)

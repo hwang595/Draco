@@ -139,7 +139,7 @@ if __name__ == "__main__":
     args = add_fit_args(argparse.ArgumentParser(description='PyTorch MNIST Single Machine Test'))
 
     if args.coding_method == "baseline":
-        train_loader = _load_data(dataset=args.dataset, seed=None)
+        train_loader, _ = _load_data(dataset=args.dataset, seed=None)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad}
@@ -166,6 +166,17 @@ if __name__ == "__main__":
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
                     'err_case':args.err_case, 'compress_grad':args.compress_grad}
+        if rank == 0:
+            coded_master = CodedMaster(comm=comm, **kwargs_master)
+            coded_master.build_model()
+            print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
+            coded_master.start()
+        else:
+            train_loader,_ = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
+            coded_worker = CodedWorker(comm=comm, **kwargs_worker)
+            coded_worker.build_model()
+            print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
+            coded_worker.train(train_loader=train_loader)
     elif args.coding_method == "cyclic":
         W, fake_W, W_perp, S = search_w(world_size-1, args.worker_fail)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
