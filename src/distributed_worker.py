@@ -112,7 +112,7 @@ class DistributedWorker(NN_Trainer):
         #self._param_idx = len(self.network.full_modules)*2-1
         self._param_idx = self.network.fetch_init_channel_index-1
 
-    def train(self, train_loader):
+    def train(self, train_loader, test_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure the value we fetched from parameter server is 1
         self.sync_fetch_step()
@@ -127,13 +127,16 @@ class DistributedWorker(NN_Trainer):
         epoch_avg_loss = 0
         iteration_last_step=0
         iter_start_time=0
-
         first = True
 
         print("Worker {}: starting training".format(self.rank))
         # start the training process
         # start the training process
         for num_epoch in range(self.max_epochs):
+            if "ResNet" in self.network_config:
+                # we evaluate the model performance for each epoch
+                self._evaluate_model(test_loader)
+
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
                 X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
                 while True:

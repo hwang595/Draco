@@ -363,7 +363,7 @@ class ResNetSplit(nn.Module):
                     mod_avail_index-=1
         return req_send_check
 
-    def backward_normal(self, g, communicator, req_send_check, cur_step, compress_grad):
+    def backward_normal(self, g, communicator, req_send_check, cur_step, fail_workers, err_mode, compress_grad):
         mod_avail_index = len(self.full_modules)-1
         channel_index = self._init_channel_index-2
         mod_counters_ = [0]*len(self.full_modules)

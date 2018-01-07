@@ -65,6 +65,7 @@ def _load_data(dataset, seed):
                        transforms.ToTensor(),
                        transforms.Normalize((0.1307,), (0.3081,))]))
         train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+        test_loader = None
     elif dataset == "Cifar10":
         '''
         training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
@@ -101,7 +102,7 @@ def _load_data(dataset, seed):
                                                download=True, transform=transform_test)
         test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size,
                                                  shuffle=False)
-    return train_loader, training_set
+    return train_loader, training_set, test_loader
 
 def add_fit_args(parser):
     """
@@ -170,7 +171,7 @@ if __name__ == "__main__":
     args = add_fit_args(argparse.ArgumentParser(description='PyTorch MNIST Single Machine Test'))
 
     if args.coding_method == "baseline":
-        train_loader, _ = _load_data(dataset=args.dataset, seed=None)
+        train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=None)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad}
@@ -187,7 +188,8 @@ if __name__ == "__main__":
             worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
-            worker_fc_nn.train(train_loader=train_loader)
+            worker_fc_nn.train(train_loader=train_loader, test_loader)
+    # majority vote
     elif args.coding_method == "maj_vote":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
@@ -203,11 +205,12 @@ if __name__ == "__main__":
             print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
             coded_master.start()
         else:
-            train_loader,_ = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
+            train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
             coded_worker = CodedWorker(comm=comm, **kwargs_worker)
             coded_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
             coded_worker.train(train_loader=train_loader)
+    # cyclic code
     elif args.coding_method == "cyclic":
         W, fake_W, W_perp, S = search_w(world_size-1, args.worker_fail)
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
