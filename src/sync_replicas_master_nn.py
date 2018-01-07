@@ -280,11 +280,11 @@ class SyncReplicasMaster_NN(NN_Trainer):
         if self._update_mode == "normal":
             self._grad_aggregate_buffer[layer_idx] += gradient
         elif self._update_mode == "geometric_median":
-            shape = gradient.shape
-            if len(shape) == 1:
+            _shape = gradient.shape
+            if len(_shape)==1:
                 self._grad_aggregate_buffer[layer_idx].append(gradient)             
-            elif len(shape) == 2:
-                self._grad_aggregate_buffer[layer_idx].append(gradient.reshape((gradient.shape[0]*gradient.shape[1],)))
+            elif len(_shape)>1:
+                self._grad_aggregate_buffer[layer_idx].append(gradient.reshape((reduce(lambda x, y: x * y, _shape),)))
 
     def model_update(self, tmp_module):
         """write model fetched from parameter server to local model"""
