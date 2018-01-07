@@ -66,10 +66,41 @@ def _load_data(dataset, seed):
                        transforms.Normalize((0.1307,), (0.3081,))]))
         train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
     elif dataset == "Cifar10":
+        '''
         training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
                                                 download=True, transform=transforms.ToTensor())
         train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
                                                   shuffle=True)
+        '''
+        normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
+                                std=[x/255.0 for x in [63.0, 62.1, 66.7]])
+        # data prep for training set
+        # note that the key point to reach convergence performance reported in this paper (https://arxiv.org/abs/1512.03385)
+        # is to implement data augmentation
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: F.pad(
+                                Variable(x.unsqueeze(0), requires_grad=False, volatile=True),
+                                (4,4,4,4),mode='reflect').data.squeeze()),
+            transforms.ToPILImage(),
+            transforms.RandomCrop(32),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+            ])
+        # data prep for test set
+        transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            normalize])
+        # load training and test set here:
+        training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
+                                                download=True, transform=transform_train)
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
+                                                  shuffle=True)
+        testset = datasets.CIFAR10(root='./cifar10_data', train=False,
+                                               download=True, transform=transform_test)
+        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size,
+                                                 shuffle=False)
     return train_loader, training_set
 
 def add_fit_args(parser):

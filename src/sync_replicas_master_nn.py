@@ -694,12 +694,17 @@ class CyclicMaster(SyncReplicasMaster_NN):
 
     def _obtain_E(self, alpha, E_2, s):
         # obtain E_1 in shape of n-2s by d
-        #_processing_y = np.transpose(y)
-        _processing_y = np.transpose(E_2)[:, -s:]
-        for i in range(self.num_workers-2*s):
-            tmp = np.dot(_processing_y[:,-s:], alpha)
-            _processing_y = np.concatenate((_processing_y, tmp), axis=1)
-        return np.transpose(_processing_y[:, s:])
+        self._tmp_y = np.zeros((E_2.shape[1], self.num_workers-s), dtype=complex)
+
+        #self._processing_y = np.transpose(E_2)[:, -s:]
+
+        self._tmp_y[:,0:s] = np.transpose(E_2)[:, -s:]
+        [self._process(s, alpha, i) for i in range(self.num_workers-2*s)]
+        return np.transpose(self._tmp_y[:, s:])
+
+    def _process(self, s, alpha, i):
+        tmp = np.dot(self._tmp_y[:,i:s+i], alpha)
+        self._tmp_y[:,s+i] = tmp.reshape(-1)
 
     def _obtain_epsilon(self, E):
         return FT.ifft(E, axis=0)
