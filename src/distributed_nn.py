@@ -177,7 +177,7 @@ if __name__ == "__main__":
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq}
+                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
         if rank == 0:
             master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
@@ -198,7 +198,7 @@ if __name__ == "__main__":
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
                     'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
-                    'err_case':args.err_case, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq}
+                    'err_case':args.err_case, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
         if rank == 0:
             coded_master = CodedMaster(comm=comm, **kwargs_master)
             coded_master.build_model()
@@ -218,7 +218,7 @@ if __name__ == "__main__":
                     'decoding_S':S}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'adversery':args.adversarial, 'worker_fail':args.worker_fail, 'err_mode':args.err_mode, 'compress_grad':args.compress_grad,
-                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W, 'eval_freq':args.eval_freq}
+                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
         if rank == 0:
             new_master = CyclicMaster(comm=comm, **kwargs_master)
             new_master.build_model()
