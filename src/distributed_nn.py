@@ -112,7 +112,7 @@ def add_fit_args(parser):
     # Training settings
     parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+    parser.add_argument('--test-batch-size', type=int, default=100, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--max-steps', type=int, default=10000, metavar='N',
                         help='the maximum number of iterations')
@@ -188,7 +188,7 @@ if __name__ == "__main__":
             worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
-            worker_fc_nn.train(train_loader=train_loader, test_loader)
+            worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
     # majority vote
     elif args.coding_method == "maj_vote":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
