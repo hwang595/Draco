@@ -228,9 +228,6 @@ class ResNetSplit(nn.Module):
         self.relu = nn.ReLU()
         self.avg_pool2d = nn.AvgPool2d(kernel_size=4)
         self._init_channel_index = self.count_channel_index()
-        self._timeout_threshold = kill_threshold
-        TIMEOUT_THRESHOLD_ = self._timeout_threshold
-        self.killed_request_list = []
 
     @property
     def fetch_init_channel_index(self):

@@ -123,9 +123,11 @@ class SyncReplicasMaster_NN(NN_Trainer):
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18(self._timeout_threshold)
+            self.network=ResNetSplit18()
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
+        elif self.network_config == "ResNet50":
+            self.network=ResNetSplit50()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
 
