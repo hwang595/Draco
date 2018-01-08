@@ -100,7 +100,7 @@ class DistributedWorker(NN_Trainer):
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18(self.kill_threshold)
+            self.network=ResNetSplit18()
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
         elif self.network_config == "FC":
