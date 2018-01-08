@@ -87,7 +87,8 @@ class DistributedWorker(NN_Trainer):
         self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
-        self._compress_grad = kwargs['compress_grad']        
+        self._compress_grad = kwargs['compress_grad']
+        self._eval_freq = kwargs['eval_freq']        
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
 
         # this one is going to be used to avoid fetch the weights for multiple times
