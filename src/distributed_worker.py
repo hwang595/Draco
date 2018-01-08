@@ -216,7 +216,7 @@ class DistributedWorker(NN_Trainer):
                          self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
                             (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
                     # break here to fetch data then enter fetching step loop again
-                    if self.cur_step%self._eval_freq == 0 and self.rank==1:
+                    if (self.cur_step%self._eval_freq == 0 or self.cur_step == 1) and self.rank==1:
                         self._save_model(file_path=self._generate_model_path())
                         #self._evaluate_model(test_loader)
                     break
@@ -306,13 +306,13 @@ class DistributedWorker(NN_Trainer):
         test_loss /= len(test_loader.dataset)
         print('Test set: Average loss: {:.4f}, Prec@1: {} Prec@5: {}'.format(test_loss, prec1, prec5))
 
-        def _generate_model_path(self):
-            return self._train_dir+"model_step_"+str(self.cur_step)
+    def _generate_model_path(self):
+        return self._train_dir+"model_step_"+str(self.cur_step)
 
-        def _save_model(self, file_path):
-            with open(file_path, "wb") as f_:
-                torch.save(self.network, f_)
-            return
+    def _save_model(self, file_path):
+        with open(file_path, "wb") as f_:
+            torch.save(self.network, f_)
+        return
 
 
 class CodedWorker(DistributedWorker):
