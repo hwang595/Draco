@@ -1,6 +1,7 @@
 mpirun -n 8 \
 python distributed_nn.py \
 --lr=0.01 \
+--momentum=0.9 \
 --network=FC \
 --dataset=MNIST \
 --batch-size=4 \

@@ -67,10 +67,7 @@ class SGDModified(optimizer.Optimizer):
             nesterov = group['nesterov']
 
             for i,p in enumerate(group['params']):
-                if p.grad is None:
-                    continue
-                #d_p = p.grad.data
-                d_p = torch.from_numpy(grad[i])
+                d_p = torch.from_numpy(grad[i]).float()
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
                 if momentum != 0:
