@@ -9,6 +9,7 @@ from scipy import fftpack as FT
 from sys import getsizeof
 
 from nn_ops import NN_Trainer
+from sgd_modified import SGDModified
 
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
@@ -134,6 +135,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         # assign a gradient accumulator to collect gradients from workers
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
         self.init_model_shapes()
+        self.optimizer = SGDModified(self.network.parameters(), lr=self.lr, momentum=self.momentum)
 
     def start(self):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -204,13 +206,14 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
             # update using SGD method
             update_start = time.time()
-            tmp_module = []
-            for param_idx, param in enumerate(self.network.parameters()):
-                updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-                tmp_module.append(updated_model)
+            #tmp_module = []
+            #for param_idx, param in enumerate(self.network.parameters()):
+            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
+            #    tmp_module.append(updated_model)
+            self.optimizer.step(grads=self._grad_aggregate_buffer)
 
             # update `state_dict` in pytorch modules
-            self.model_update(tmp_module)
+            #self.model_update(tmp_module)
             update_duration = time.time() - update_start
             # reset essential elements
             self.meset_grad_buffer()
