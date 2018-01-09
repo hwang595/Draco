@@ -68,9 +68,9 @@ class SGDModified(Optimizer):
 
             for i,p in enumerate(group['params']):
                 if mode == 'normal':
-                    d_p = torch.from_numpy(grad[i]).float()
+                    d_p = torch.from_numpy(grads[i]).float()
                 elif mode == 'geometric_median':
-                    d_p = torch.from_numpy(grad[i].reshape(p.size())).float()
+                    d_p = torch.from_numpy(grads[i].reshape(p.size())).float()
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
                 if momentum != 0:
