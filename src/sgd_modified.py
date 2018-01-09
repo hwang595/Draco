@@ -1,5 +1,5 @@
 import torch
-from torch.optim import Optimizer, required
+from torch.optim import Optimizer
 
 
 class SGDModified(optimizer.Optimizer):
@@ -37,7 +37,7 @@ class SGDModified(optimizer.Optimizer):
         The Nesterov version is analogously modified.
     """
 
-    def __init__(self, params, lr=required, momentum=0, dampening=0,
+    def __init__(self, params, lr=0.1, momentum=0, dampening=0,
                  weight_decay=0, nesterov=False):
         defaults = dict(lr=lr, momentum=momentum, dampening=dampening,
                         weight_decay=weight_decay, nesterov=nesterov)
