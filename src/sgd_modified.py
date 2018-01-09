@@ -50,7 +50,7 @@ class SGDModified(optimizer.Optimizer):
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
-    def step(self, grads, closure=None):
+    def step(self, grads, mode, closure=None):
         """Performs a single optimization step.
         Arguments:
             closure (callable, optional): A closure that reevaluates the model
@@ -67,7 +67,10 @@ class SGDModified(optimizer.Optimizer):
             nesterov = group['nesterov']
 
             for i,p in enumerate(group['params']):
-                d_p = torch.from_numpy(grad[i]).float()
+                if mode == 'normal':
+                    d_p = torch.from_numpy(grad[i]).float()
+                elif mode == 'geometric_median':
+                    d_p = torch.from_numpy(grad[i].reshape(p.size())).float()
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
                 if momentum != 0:
@@ -82,6 +85,5 @@ class SGDModified(optimizer.Optimizer):
                         d_p = d_p.add(momentum, buf)
                     else:
                         d_p = buf
-
                 p.data.add_(-group['lr'], d_p)
         return loss
