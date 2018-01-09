@@ -1,8 +1,8 @@
 import torch
-from torch.optimizer import Optimizer, required
+from torch.optim import Optimizer, required
 
 
-class SGDModified(Optimizer):
+class SGDModified(optimizer.Optimizer):
     r"""Implements stochastic gradient descent (optionally with momentum).
     Nesterov momentum is based on the formula from
     `On the importance of initialization and momentum in deep learning`__.
