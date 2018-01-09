@@ -210,7 +210,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
             #for param_idx, param in enumerate(self.network.parameters()):
             #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
             #    tmp_module.append(updated_model)
-            self.optimizer.step(grads=self._grad_aggregate_buffer)
+            self.optimizer.step(grads=self._grad_aggregate_buffer, mode=self._update_mode)
 
             # update `state_dict` in pytorch modules
             #self.model_update(tmp_module)
