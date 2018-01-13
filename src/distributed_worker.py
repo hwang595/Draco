@@ -7,6 +7,7 @@ from nn_ops import NN_Trainer
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
+from model_ops.vgg import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 from model_ops.utils import err_simulation
 from compress_gradient import compress
@@ -107,6 +108,12 @@ class DistributedWorker(NN_Trainer):
             self.network=ResNetSplit50()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
+        elif self.network_config == "VGG11":
+            self.network=vgg11_bn()
+        elif self.network_config == "VGG13":
+            self.network=vgg13_bn()
+        elif self.network_config == "VGG16":
+            self.network=vgg16_bn()
 
         # set up optimizer
         self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
@@ -179,14 +186,16 @@ class DistributedWorker(NN_Trainer):
                     forward_start_time = time.time()
                     logits = self.network(X_batch)
                     logits_1 = Variable(logits.data, requires_grad=True)
-
                     loss = self.criterion(logits_1, y_batch)
 
                     epoch_avg_loss += loss.data[0]
                     forward_duration = time.time()-forward_start_time
-
+                    # TODO(hwang): figure out a better way to do this
+                    computation_time = time.time() - forward_start_time
                     # backward step
                     backward_start_time = time.time()
+                    self._backward(loss, logits_1)
+                    '''
                     loss.backward()
                     computation_time = time.time() - forward_start_time
                     # we can send the grad of this very first layer to parameter server right here before
@@ -212,6 +221,7 @@ class DistributedWorker(NN_Trainer):
                     req_send_check.append(req_isend)
                     req_send_check=self.network.backward_normal(logits_1.grad, self.comm, req_send_check, self.cur_step, self._fail_workers, self._err_mode, self._compress_grad)
                     req_send_check[-1].wait()
+                    '''
                     backward_duration = time.time()-backward_start_time
                     # on the end of a certain iteration
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
@@ -291,6 +301,50 @@ class DistributedWorker(NN_Trainer):
                 model_counter_ += 1
             new_state_dict.update(tmp_dict)
         self.network.load_state_dict(new_state_dict)
+
+    def _backward(self, loss, logits_1):
+        loss.backward()
+        if "VGG" not in self.network_config:
+            req_send_check = []
+            init_grad_data = logits_1.grad.data.numpy()
+            init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
+            # send grad to parameter server
+            if self.rank in self._fail_workers:
+                # simulate some byzantine error here:
+                simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
+                if self._compress_grad=='compress':
+                    _compressed_grad = compress(simulation_grad)
+                    req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
+                else:
+                    req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+            else:
+                if self._compress_grad=='compress':
+                    _compressed_grad = compress(init_grad_data)
+                    req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
+                else:
+                    req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
+            req_send_check.append(req_isend)
+            req_send_check=self.network.backward_normal(logits_1.grad, self.comm, req_send_check, self.cur_step, self._fail_workers, self._err_mode, self._compress_grad)
+            req_send_check[-1].wait()
+        else:
+            self._send_grads()
+
+    def _send_grads(self):
+        req_send_check = []
+        for param_index, param in enumerate(self.network.parameters()):
+            grad = param.data.numpy().astype(np.float64)
+            if len(req_send_check) != 0:
+                req_send_check[-1].wait()
+            if self.rank in self._fail_workers:
+                simulation_grad = err_simulation(grad, self._err_mode)
+                _compressed_grad = compress(simulation_grad)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_send_check.append(req_isend)
+            else:
+                _compressed_grad = compress(grad)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_send_check.append(req_isend)
+        req_send_check[-1].wait()
 
     def _evaluate_model(self, test_loader):
         self.network.eval()
