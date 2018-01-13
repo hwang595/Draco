@@ -574,6 +574,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._max_steps = kwargs['max_steps']
         self._compress_grad = kwargs['compress_grad']
         self._W_perp = kwargs['W_perp']
+        self._W = kwargs['W']
         self._S = kwargs['decoding_S']
 
         self._C_1 = kwargs['C_1']
@@ -583,7 +584,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._poly_a[-1] = 1+0j
         # 1 by n-2s
         self._row_vec = np.zeros((1, self.num_workers-2*self.s))
-        self._row_vec[0][-1]=1
+        self._row_vec[0][0]=1
 
     def build_model(self):
         # build network
@@ -720,7 +721,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._poly_a[0:_s] = -alpha.reshape(-1)
         estimation = np.dot(self._estimator, self._poly_a)
 
-        err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-10 or np.absolute(elem.imag) > 1e-10)]
+        err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]
 
         recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*_s),axis=0)
         remaining_indices = err_indices[0:self.num_workers-2*_s]
@@ -729,7 +730,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
         row_recover = np.dot(self._row_vec, inv_recover)
         _recover_final[0][[remaining_indices]] = row_recover[0]
         decoded_grad = np.dot(_recover_final, R)
-        real_grad = np.dot(self._S, R)
         return decoded_grad[0]
 
     def _obtain_E(self, alpha, E_2, s):
