@@ -704,21 +704,16 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._R[layer_index][src-1] = recv_grad
 
     def _decoding(self, R, random_factor):
-        start = time.time()
         _recover_final = np.zeros((1, self.num_workers), dtype=complex)
-        E_2 = np.dot(self._W_perp, R)
-        _shape = E_2.shape
-        _s = _shape[0]/2
-        _d = _shape[1]
-        # _X in s*sd:
-        _X_v2 = np.take(E_2, np.array([range(-i-(_s+1), -i-2+1) for i in range(_s)]).reshape(-1), axis=0)
-        aaa = np.dot(_X_v2, random_factor)
-        _X_v2_4solve = aaa.reshape((_s, _s))
-        tmp_y = np.take(E_2, np.array([-i-1 for i in range(_s)]), axis=0)
-        bbb = np.dot(tmp_y, random_factor)
-        alpha = _cls_solver(_X_v2_4solve, bbb.reshape(bbb.shape[0], 1))
+        E_combined = np.dot(R, random_factor)
+        E_2 = np.dot(self._W_perp, E_combined)
 
-        self._poly_a[0:_s] = -alpha.reshape(-1)
+        _X_v3 = np.take(E_2, np.array([range(-i-(self.s+1), -i-2+1) for i in range(self.s)]))
+        tmp_y = np.take(E_2, np.array([-i-1 for i in range(self.s)]), axis=0)
+
+        alpha = LA.solve_toeplitz((_X_v3[:,0],_X_v3[0,:]), tmp_y)
+
+        self._poly_a[0:self.s] = -alpha.reshape(-1)
         estimation = np.dot(self._estimator, self._poly_a)
 
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]

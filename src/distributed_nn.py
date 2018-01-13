@@ -233,7 +233,7 @@ if __name__ == "__main__":
             print("I am the master: the world size is {}, cur step: {}".format(new_master.world_size, new_master.cur_step))
             new_master.start()
         else:
-            _, training_set = _load_data(dataset=args.dataset, seed=SEED_)
+            _, training_set, _ = _load_data(dataset=args.dataset, seed=SEED_)
             new_worker = CyclicWorker(comm=comm, **kwargs_worker)
             new_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(new_worker.rank, new_worker.world_size-1, new_worker.next_step))
