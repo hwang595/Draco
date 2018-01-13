@@ -18,4 +18,5 @@ python distributed_nn.py \
 --group-size=3 \
 --err-case=worst_case \
 --compress-grad=compress \
+--checkpoint-step=0 \
 --train-dir=/home/ubuntu/

@@ -15,7 +15,7 @@ def search_w(n, s):
     s_tmp = np.zeros((1, n-_hat_s+1),dtype=complex)
     s_tmp[0][0] = 1.0+0.0j
     S = np.dot(s_tmp, _array_getH(C_1))
-    return W, fake_W, W_perp, S
+    return W, fake_W, W_perp, S, C_1
 
 
 def _construct_c(n):

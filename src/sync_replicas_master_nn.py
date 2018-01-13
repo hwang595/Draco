@@ -118,6 +118,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         self._max_steps = kwargs['max_steps']
         self._update_mode = kwargs['update_mode']
         self._compress_grad = kwargs['compress_grad']
+        self._checkpoint_step = kwargs['checkpoint_step']
 
     def build_model(self):
         # build network
@@ -131,6 +132,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.network=ResNetSplit50()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
+
+        if self._checkpoint_step != 0:
+            file_path = "../checkpoints/geo_median/model_step"+str(self._checkpoint_step)
+            self._load_model(file_path)
 
         # assign a gradient accumulator to collect gradients from workers
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
@@ -321,6 +326,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
             torch.save(self.network, f_)
         return
 
+    def _load_model(self, file_path):
+        model_state_dict=torch.load(file_path)
+        self.network.load_state_dict(torch.load(model_state_dict))
+
     def _evaluate_model(self, validation_loader):
         self.network.eval()
         prec1_counter_ = prec5_counter_ = batch_counter_ = 0
@@ -382,15 +391,18 @@ class CodedMaster(SyncReplicasMaster_NN):
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18(self._timeout_threshold)
+            self.network=ResNetSplit18()
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
+        elif self.network_config == "ResNet50":
+            self.network=ResNetSplit50()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
 
         # assign a gradient accumulator to collect gradients from workers
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
         self.init_model_shapes()
+        self.optimizer = SGDModified(self.network.parameters(), lr=self.lr, momentum=self.momentum)
 
     def init_model_shapes(self):
         tmp_aggregate_buffer = []
@@ -477,13 +489,13 @@ class CodedMaster(SyncReplicasMaster_NN):
 
             update_start = time.time()
             # update using SGD method
-            tmp_module = []
-            for param_idx, param in enumerate(self.network.parameters()):
-                updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-                tmp_module.append(updated_model)
-
+            #tmp_module = []
+            #for param_idx, param in enumerate(self.network.parameters()):
+            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
+            #    tmp_module.append(updated_model)
+            self.optimizer.step(grads=self._grad_aggregate_buffer, mode=self._update_mode)
             # update `state_dict` in pytorch modules
-            self.model_update(tmp_module)
+            #self.model_update(tmp_module)
             update_duration = time.time() - update_start
             # reset essential elements
             self.meset_grad_buffer()
@@ -558,6 +570,15 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._W_perp = kwargs['W_perp']
         self._S = kwargs['decoding_S']
 
+        self._C_1 = kwargs['C_1']
+
+        self._estimator = self._estimator_generator(self.num_workers, self.s) # n by s+1 complex matrix
+        self._poly_a = np.zeros(self.s+1, dtype=complex)
+        self._poly_a[-1] = 1+0j
+        # 1 by n-2s
+        self._row_vec = np.zeros((1, self.num_workers-2*self.s))
+        self._row_vec[0][-1]=1
+
     def build_model(self):
         # build network
         if self.network_config == "LeNet":
@@ -572,6 +593,10 @@ class CyclicMaster(SyncReplicasMaster_NN):
         # assign a gradient accumulator to collect gradients from workers
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
         self.init_model_shapes()
+        self._rand_factors = []
+        for param in self.network.parameters():
+            _dim = reduce(lambda x, y: x * y, param.size())
+            self._rand_factors.append(np.random.normal(size=_dim))
 
     def init_model_shapes(self):
         tmp_aggregate_buffer = []
@@ -641,10 +666,10 @@ class CyclicMaster(SyncReplicasMaster_NN):
             
             method_start = time.time()
             for layer_index, R in enumerate(self._R):
-                decoded_grad=self._decoding(R)
+                decoded_grad=self._decoding(R, self._rand_factors[layer_index])
                 self._grad_aggregate_buffer[layer_index] = np.real(decoded_grad)/self.num_workers
             method_duration = time.time()-method_start
-            
+
             update_start = time.time()
             # update using SGD method
             tmp_module = []
@@ -671,31 +696,34 @@ class CyclicMaster(SyncReplicasMaster_NN):
         assert self._R[layer_index][src-1].shape == recv_grad.shape
         self._R[layer_index][src-1] = recv_grad
 
-    def _decoding(self, R):
+    def _decoding(self, R, random_factor):
+        start = time.time()
+        _recover_final = np.zeros((1, self.num_workers), dtype=complex)
         E_2 = np.dot(self._W_perp, R)
-        epsilon_2 = self._obtain_epsilon(E_2)
-
         _shape = E_2.shape
         _s = _shape[0]/2
         _d = _shape[1]
-        _X = np.take(E_2, np.array([range(-i-(_s+1), -i-2+1) for i in range(_s)]).reshape(-1), axis=0).reshape((_s, _s*_d), order='F')
-        # we use tmp_y as the start point to obtain the full E matrix
+        # _X in s*sd:
+        _X_v2 = np.take(E_2, np.array([range(-i-(_s+1), -i-2+1) for i in range(_s)]).reshape(-1), axis=0)
+        aaa = np.dot(_X_v2, random_factor)
+        _X_v2_4solve = aaa.reshape((_s, _s))
         tmp_y = np.take(E_2, np.array([-i-1 for i in range(_s)]), axis=0)
-        _y = tmp_y.reshape(-1, order='F')
-        alpha = _cls_solver(np.transpose(_X), _y.reshape(_y.shape[0], 1))
+        bbb = np.dot(tmp_y, random_factor)
+        alpha = _cls_solver(_X_v2_4solve, bbb.reshape(bbb.shape[0], 1))
 
-        # we want E_1 and E_2 n by d here:
-        E_1=self._obtain_E(alpha, E_2, _s)
-        # concatenate E_1 and E_2 to obtain E
-        E = np.concatenate((E_1, E_2), axis=0) 
+        self._poly_a[0:_s] = -alpha.reshape(-1)
+        estimation = np.dot(self._estimator, self._poly_a)
 
-        # obtain epsilon by taking IFT of E:
-        epsilon = self._obtain_epsilon(E) * np.sqrt(self.num_workers)
-        # TODO(hwang): try to figure out position issues for IFT
-        epsilon = np.roll(epsilon, _s-1, axis=0)
-        bar_R = R-epsilon
-        decoded_grad = np.dot(self._S, bar_R)
-        return decoded_grad
+        err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-10 or np.absolute(elem.imag) > 1e-10)]
+        recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*_s),axis=0)
+        remaining_indices = err_indices[0:self.num_workers-2*_s]
+
+        inv_recover=np.linalg.inv(recover)
+        row_recover = np.dot(self._row_vec, inv_recover)
+        _recover_final[0][[remaining_indices]] = row_recover[0]
+        decoded_grad = np.dot(_recover_final, R)
+
+        return decoded_grad[0]
 
     def _obtain_E(self, alpha, E_2, s):
         # obtain E_1 in shape of n-2s by d
@@ -713,6 +741,15 @@ class CyclicMaster(SyncReplicasMaster_NN):
 
     def _obtain_epsilon(self, E):
         return FT.ifft(E, axis=0)
+
+    def _estimator_generator(self, n, s):
+        estimator = np.zeros((n, s+1), dtype=complex)
+        #z_gen_func = np.vectorize(lambda t: np.exp(-2*np.pi*t*1j/n))
+        z_gen_func = np.vectorize(lambda t: np.exp(2*np.pi*t*1j/n))
+        col1 = z_gen_func(np.arange(n))
+        for i in range(s+1):
+            estimator[:, i] = np.power(col1, i)
+        return estimator
 
 def _cls_solver(A, b):
     return np.dot(np.dot(np.linalg.inv(np.dot(_array_getH(A), A)), _array_getH(A)),b)
