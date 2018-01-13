@@ -121,7 +121,8 @@ class DistributedWorker(NN_Trainer):
         # assign a buffer for receiving models from parameter server
         self.init_recv_buf()
         #self._param_idx = len(self.network.full_modules)*2-1
-        self._param_idx = self.network.fetch_init_channel_index-1
+        if "VGG" not in self.network_config:
+            self._param_idx = self.network.fetch_init_channel_index-1
 
     def train(self, train_loader, test_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -338,11 +339,11 @@ class DistributedWorker(NN_Trainer):
             if self.rank in self._fail_workers:
                 simulation_grad = err_simulation(grad, self._err_mode)
                 _compressed_grad = compress(simulation_grad)
-                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+param_index)
                 req_send_check.append(req_isend)
             else:
                 _compressed_grad = compress(grad)
-                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
+                req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+param_index)
                 req_send_check.append(req_isend)
         req_send_check[-1].wait()
 

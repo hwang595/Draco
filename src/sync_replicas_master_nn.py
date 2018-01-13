@@ -132,6 +132,12 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.network=ResNetSplit50()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
+        elif self.network_config == "VGG11":
+            self.network=vgg11_bn()
+        elif self.network_config == "VGG13":
+            self.network=vgg13_bn()
+        elif self.network_config == "VGG16":
+            self.network=vgg16_bn()
 
         if self._checkpoint_step != 0:
             file_path = "../checkpoints/geo_median/model_step"+str(self._checkpoint_step)
@@ -715,6 +721,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         estimation = np.dot(self._estimator, self._poly_a)
 
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-10 or np.absolute(elem.imag) > 1e-10)]
+
         recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*_s),axis=0)
         remaining_indices = err_indices[0:self.num_workers-2*_s]
 
@@ -722,7 +729,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         row_recover = np.dot(self._row_vec, inv_recover)
         _recover_final[0][[remaining_indices]] = row_recover[0]
         decoded_grad = np.dot(_recover_final, R)
-
+        real_grad = np.dot(self._S, R)
         return decoded_grad[0]
 
     def _obtain_E(self, alpha, E_2, s):
