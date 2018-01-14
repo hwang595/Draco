@@ -140,8 +140,9 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.network=vgg16_bn()
 
         if self._checkpoint_step != 0:
-            file_path = "../checkpoints/geo_median/model_step"+str(self._checkpoint_step)
+            file_path = "../checkpoints/geo_median/model_step_"+str(self._checkpoint_step)
             self._load_model(file_path)
+            self.cur_step = int(self._checkpoint_step)+1
 
         # assign a gradient accumulator to collect gradients from workers
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
@@ -231,7 +232,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.grad_accumulator.meset_everything()
             # save model for validation in a pre-specified frequency
             if self.cur_step%self._eval_freq == 0:
-                self._save_model(file_path=self._generate_model_path())
+                if "ResNet" not in self.network_config:
+                    self._save_model(file_path=self._generate_model_path())
             print("Master Step: {}, Method Time Cost: {}, Update Time Cost: {}".format(self.cur_step, method_duration, update_duration))
             self.cur_step += 1
 
@@ -334,7 +336,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
     def _load_model(self, file_path):
         model_state_dict=torch.load(file_path)
-        self.network.load_state_dict(torch.load(model_state_dict))
+        self.network.load_state_dict(model_state_dict)
+        print("Master Done Loading Checkpoint from {}".format(file_path))
 
     def _evaluate_model(self, validation_loader):
         self.network.eval()
@@ -718,8 +721,8 @@ class CyclicMaster(SyncReplicasMaster_NN):
 
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]
 
-        recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*_s),axis=0)
-        remaining_indices = err_indices[0:self.num_workers-2*_s]
+        recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*self.s),axis=0)
+        remaining_indices = err_indices[0:self.num_workers-2*self.s]
 
         inv_recover=np.linalg.inv(recover)
         row_recover = np.dot(self._row_vec, inv_recover)

@@ -90,7 +90,8 @@ class DistributedWorker(NN_Trainer):
         self._err_mode = kwargs['err_mode']
         self._compress_grad = kwargs['compress_grad']
         self._eval_freq = kwargs['eval_freq']
-        self._train_dir = kwargs['train_dir']        
+        self._train_dir = kwargs['train_dir']
+        self._checkpoint_step = kwargs['checkpoint_step']        
         self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
 
         # this one is going to be used to avoid fetch the weights for multiple times
@@ -115,6 +116,10 @@ class DistributedWorker(NN_Trainer):
         elif self.network_config == "VGG16":
             self.network=vgg16_bn()
 
+        if self._checkpoint_step != 0:
+            file_path = "../checkpoints/geo_median/model_step_"+str(self._checkpoint_step)
+            self._load_model(file_path)
+
         # set up optimizer
         self.optimizer = torch.optim.SGD(self.network.parameters(), lr=self.lr, momentum=self.momentum)
         self.criterion = nn.CrossEntropyLoss()
@@ -127,10 +132,15 @@ class DistributedWorker(NN_Trainer):
     def train(self, train_loader, test_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure the value we fetched from parameter server is 1
+        global STEP_START_
+
         self.sync_fetch_step()
         # do some sync check here
         assert(self.update_step())
-        assert(self.cur_step == STEP_START_)
+        if self._checkpoint_step == 0:
+            assert(self.cur_step == STEP_START_)
+        else:
+            assert(self.cur_step == int(self._checkpoint_step)+1)
 
         # number of batches in one epoch
         num_batch_per_epoch = len(train_loader.dataset) / self.batch_size
@@ -375,6 +385,11 @@ class DistributedWorker(NN_Trainer):
             #torch.save(self.network, f_)
             torch.save(self.network.state_dict(), f_)
         return
+
+    def _load_model(self, file_path):
+        model_state_dict=torch.load(file_path)
+        self.network.load_state_dict(model_state_dict)
+        print("Validation Worker Done Loading Checkpoint from {}".format(file_path))
 
 
 class CodedWorker(DistributedWorker):

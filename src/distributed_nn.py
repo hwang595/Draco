@@ -183,7 +183,7 @@ if __name__ == "__main__":
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad, 'checkpoint_step':args.checkpoint_step}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
+                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'checkpoint_step':args.checkpoint_step}
         if rank == 0:
             master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
