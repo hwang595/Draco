@@ -107,6 +107,10 @@ class DistributedWorker(NN_Trainer):
             self.network=ResNetSplit34()
         elif self.network_config == "ResNet50":
             self.network=ResNetSplit50()
+        elif self.network_config == "ResNet101":
+            self.network=ResNetSplit101()
+        elif self.network_config == "ResNet152":
+            self.network=ResNetSplit152()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
         elif self.network_config == "VGG11":

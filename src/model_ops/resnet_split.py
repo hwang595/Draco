@@ -27,8 +27,8 @@ LAYER_DIGITS= int(1e+3)
 TIMEOUT_THRESHOLD_=10
 
 # only use for maj vote
-SEED_=428
-torch.manual_seed(SEED_)
+#SEED_=428
+#torch.manual_seed(SEED_)
 
 def generate_tag(layer_tag, step_token):
     '''

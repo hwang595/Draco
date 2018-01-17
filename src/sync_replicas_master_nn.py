@@ -14,10 +14,11 @@ from sgd_modified import SGDModified
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
+from model_ops.vgg import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 import hdmedians as hd
 from compress_gradient import decompress
-from decoding import decoding
+import c_coding
 
 import torch
 
@@ -130,6 +131,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.network=ResNetSplit34()
         elif self.network_config == "ResNet50":
             self.network=ResNetSplit50()
+        elif self.network_config == "ResNet101":
+            self.network=ResNetSplit101()
+        elif self.network_config == "ResNet152":
+            self.network=ResNetSplit152()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
         elif self.network_config == "VGG11":
@@ -606,7 +611,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._rand_factors = []
         for param in self.network.parameters():
             _dim = reduce(lambda x, y: x * y, param.size())
-            self._rand_factors.append(np.random.normal(size=_dim))
+            self._rand_factors.append(np.random.normal(loc=1.0, size=_dim))
 
     def init_model_shapes(self):
         tmp_aggregate_buffer = []
@@ -709,12 +714,16 @@ class CyclicMaster(SyncReplicasMaster_NN):
     def _decoding(self, R, random_factor):
         _recover_final = np.zeros((1, self.num_workers), dtype=complex)
         E_combined = np.dot(R, random_factor)
+        '''
         E_2 = np.dot(self._W_perp, E_combined)
 
         _X_v3 = np.take(E_2, np.array([range(-i-(self.s+1), -i-2+1) for i in range(self.s)]))
         tmp_y = np.take(E_2, np.array([-i-1 for i in range(self.s)]), axis=0)
 
         alpha = LA.solve_toeplitz((_X_v3[:,0],_X_v3[0,:]), tmp_y)
+        '''
+        # move this part to wrapped C code:
+        alpha = c_coding.solve_poly_a(n=self.num_workers, s=self.s, R=E_combined)
 
         self._poly_a[0:self.s] = -alpha.reshape(-1)
         estimation = np.dot(self._estimator, self._poly_a)
