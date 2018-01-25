@@ -226,15 +226,15 @@ if __name__ == "__main__":
                     'decoding_S':S, 'C_1':C_1}
         kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'adversery':args.adversarial, 'worker_fail':args.worker_fail, 'err_mode':args.err_mode, 'compress_grad':args.compress_grad,
-                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W}
+                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
         if rank == 0:
             new_master = CyclicMaster(comm=comm, **kwargs_master)
             new_master.build_model()
             print("I am the master: the world size is {}, cur step: {}".format(new_master.world_size, new_master.cur_step))
             new_master.start()
         else:
-            _, training_set, _ = _load_data(dataset=args.dataset, seed=SEED_)
+            _, training_set, test_loader = _load_data(dataset=args.dataset, seed=SEED_)
             new_worker = CyclicWorker(comm=comm, **kwargs_worker)
             new_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(new_worker.rank, new_worker.world_size-1, new_worker.next_step))
-            new_worker.train(training_set=training_set)
+            new_worker.train(training_set=training_set, test_loader=test_loader)

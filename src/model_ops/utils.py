@@ -5,7 +5,12 @@ CONST_ = -10000
 
 def err_simulation(grad, mode, cyclic=False):
 	if mode == "rev_grad":
-		return ADVERSARY_*grad
+		if cyclic:
+			adv = ADVERSARY_*grad
+			assert adv.shape == grad.shape
+			return np.add(adv, grad)
+		else:
+			return ADVERSARY_*grad
 	elif mode == "constant":
 		if cyclic:
 			adv = np.ones(grad.shape, dtype=np.float64)*CONST_

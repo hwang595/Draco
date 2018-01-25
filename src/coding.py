@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.optimize import lsq_linear
 
 def search_w(n, s):
     # params: n: number of workers
@@ -61,7 +62,7 @@ def _cls_solving(C_1, fake_W):
         for j, index in enumerate(indices):
             _A[j] = C_1[index,1:]
             _b[j] = -C_1[index,0]
-        _q=_cls_solver(_A, _b)
+        _q=lsq_linear(_A, _b.reshape(-1)).x
         Q[1:,i] = _q.reshape(Q[1:,i].shape)
     W = np.dot(C_1, Q)
     return W, fake_W

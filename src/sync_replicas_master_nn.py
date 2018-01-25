@@ -124,7 +124,8 @@ class SyncReplicasMaster_NN(NN_Trainer):
     def build_model(self):
         # build network
         if self.network_config == "LeNet":
-            self.network=LeNetSplit()
+            #self.network=LeNetSplit()
+            self.network=LeNet()
         elif self.network_config == "ResNet18":
             self.network=ResNetSplit18()
         elif self.network_config == "ResNet34":
@@ -594,18 +595,22 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._row_vec = np.zeros((1, self.num_workers-2*self.s))
         self._row_vec[0][0]=1
 
+        self.vec = np.zeros(recover.shape[0])
+        self.vec[0] = 1
+
     def build_model(self):
         # build network
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18(self._timeout_threshold)
+            self.network=ResNetSplit18()
         elif self.network_config == "ResNet34":
             self.network=ResNetSplit34()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
 
         # assign a gradient accumulator to collect gradients from workers
+        self.optimizer = SGDModified(self.network.parameters(), lr=self.lr, momentum=self.momentum)
         self.grad_accumulator = GradientAccumulator(self.network, self.world_size-1, mode=self._compress_grad)
         self.init_model_shapes()
         self._rand_factors = []
@@ -629,8 +634,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
         # we still need to make sure value fetched from ps is 1
         self.async_bcast_step()
-        # for debug print
-        np.set_printoptions(precision=4,linewidth=200.0)
         # fake test here:
         for i in range(1, self._max_steps):
             # switch back to training mode
@@ -687,13 +690,14 @@ class CyclicMaster(SyncReplicasMaster_NN):
 
             update_start = time.time()
             # update using SGD method
-            tmp_module = []
-            for param_idx, param in enumerate(self.network.parameters()):
-                updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-                tmp_module.append(updated_model)
+            #tmp_module = []
+            #for param_idx, param in enumerate(self.network.parameters()):
+            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
+            #    tmp_module.append(updated_model)
 
             # update `state_dict` in pytorch modules
-            self.model_update(tmp_module)
+            #self.model_update(tmp_module)
+            self.optimizer.step(grads=self._grad_aggregate_buffer, mode="cyclic")
             update_duration = time.time() - update_start
             # reset essential elements
             self.meset_grad_buffer()
@@ -714,14 +718,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
     def _decoding(self, R, random_factor):
         _recover_final = np.zeros((1, self.num_workers), dtype=complex)
         E_combined = np.dot(R, random_factor)
-        '''
-        E_2 = np.dot(self._W_perp, E_combined)
 
-        _X_v3 = np.take(E_2, np.array([range(-i-(self.s+1), -i-2+1) for i in range(self.s)]))
-        tmp_y = np.take(E_2, np.array([-i-1 for i in range(self.s)]), axis=0)
-
-        alpha = LA.solve_toeplitz((_X_v3[:,0],_X_v3[0,:]), tmp_y)
-        '''
         # move this part to wrapped C code:
         alpha = c_coding.solve_poly_a(n=self.num_workers, s=self.s, R=E_combined)
 
@@ -731,11 +728,13 @@ class CyclicMaster(SyncReplicasMaster_NN):
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]
 
         recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*self.s),axis=0)
+
+        res = lsq_linear(np.transpose(recover), self.vec)
+        new_v = np.transpose(res.x)
+        
         remaining_indices = err_indices[0:self.num_workers-2*self.s]
 
-        inv_recover=np.linalg.inv(recover)
-        row_recover = np.dot(self._row_vec, inv_recover)
-        _recover_final[0][[remaining_indices]] = row_recover[0]
+        _recover_final[0][[remaining_indices]] = new_v
         decoded_grad = np.dot(_recover_final, R)
         return decoded_grad[0]
 
