@@ -6,6 +6,7 @@ from mpi4py import MPI
 import numpy as np
 from scipy import linalg as LA
 from scipy import fftpack as FT
+from scipy.optimize import lsq_linear
 from sys import getsizeof
 
 from nn_ops import NN_Trainer
@@ -595,7 +596,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         self._row_vec = np.zeros((1, self.num_workers-2*self.s))
         self._row_vec[0][0]=1
 
-        self.vec = np.zeros(recover.shape[0])
+        self.vec = np.zeros(self.num_workers-2*self.s)
         self.vec[0] = 1
 
     def build_model(self):
