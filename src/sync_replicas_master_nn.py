@@ -10,7 +10,7 @@ from scipy.optimize import lsq_linear
 from sys import getsizeof
 
 from nn_ops import NN_Trainer
-from sgd_modified import SGDModified
+from optim.sgd_modified import SGDModified
 
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
@@ -204,11 +204,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
                     # aggregate the gradient
                     if self.grad_accumulator.gradient_aggregate_counter[layer_index] <= self._num_grad_to_collect:
                         self.aggregate_gradient(gradient=received_grad, layer_idx=layer_index)
-
                     self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
-                    
-                    #print(self.grad_accumulator.gradient_aggregate_counter)
-                    #print('---------------------------------------------------------------------')
                 
                 enough_gradients_received = True
                 for j in self.grad_accumulator.gradient_aggregate_counter:
@@ -225,10 +221,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
             # update using SGD method
             update_start = time.time()
-            #tmp_module = []
-            #for param_idx, param in enumerate(self.network.parameters()):
-            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-            #    tmp_module.append(updated_model)
+
             self.optimizer.step(grads=self._grad_aggregate_buffer, mode=self._update_mode)
 
             # update `state_dict` in pytorch modules
@@ -486,8 +479,6 @@ class CodedMaster(SyncReplicasMaster_NN):
                         self.aggregate_gradient(received_grad, layer_index, status.source)
 
                     self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
-                    #print(self.grad_accumulator.gradient_aggregate_counter)
-                    #print('---------------------------------------------------------------------')
                 
                 enough_gradients_received = True
                 for j in self.grad_accumulator.gradient_aggregate_counter:
@@ -505,10 +496,6 @@ class CodedMaster(SyncReplicasMaster_NN):
 
             update_start = time.time()
             # update using SGD method
-            #tmp_module = []
-            #for param_idx, param in enumerate(self.network.parameters()):
-            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-            #    tmp_module.append(updated_model)
             self.optimizer.step(grads=self._grad_aggregate_buffer, mode=self._update_mode)
             # update `state_dict` in pytorch modules
             #self.model_update(tmp_module)
@@ -676,8 +663,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
                         self._fill_R(layer_index, status.source, received_grad)
 
                     self.grad_accumulator.gradient_aggregate_counter[layer_index] += 1
-                    #print(self.grad_accumulator.gradient_aggregate_counter)
-                    #print('---------------------------------------------------------------------')
                 
                 enough_gradients_received = True
                 for j in self.grad_accumulator.gradient_aggregate_counter:
@@ -690,11 +675,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
             method_duration = time.time()-method_start
 
             update_start = time.time()
-            # update using SGD method
-            #tmp_module = []
-            #for param_idx, param in enumerate(self.network.parameters()):
-            #    updated_model=update_params_dist_version(param=param.data.numpy(), avg_grad=self._grad_aggregate_buffer[param_idx], learning_rate=self.lr)
-            #    tmp_module.append(updated_model)
 
             # update `state_dict` in pytorch modules
             #self.model_update(tmp_module)

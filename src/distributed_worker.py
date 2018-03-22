@@ -31,7 +31,6 @@ def prepare_grad_list(params):
         # get gradient from layers here
         # in this version we fetch weights at once
         # remember to change type here, which is essential
-        #grads = param.grad.data.numpy().astype(np.float64)
         grads = param.grad.data.numpy().astype(np.float64)
         grad_list.append((param_idx, grads))
     return grad_list
@@ -75,7 +74,6 @@ class DistributedWorker(NN_Trainer):
         self.comm = comm   # get MPI communicator object
         self.world_size = comm.Get_size() # total number of processes
         self.rank = comm.Get_rank() # rank of this Worker
-        #self.status = MPI.Status()
         self.cur_step = 0
         self.next_step = 0 # we will fetch this one from parameter server
 
@@ -212,33 +210,6 @@ class DistributedWorker(NN_Trainer):
                         self._backward(loss, logits_1)
                     else:
                         self._backward(loss)
-                    '''
-                    loss.backward()
-                    computation_time = time.time() - forward_start_time
-                    # we can send the grad of this very first layer to parameter server right here before
-                    # the chain rule is begining
-                    req_send_check = []
-                    init_grad_data = logits_1.grad.data.numpy()
-                    init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
-                    # send grad to parameter server
-                    if self.rank in self._fail_workers:
-                        # simulate some byzantine error here:
-                        simulation_grad = err_simulation(grad=init_grad_data, mode=self._err_mode)
-                        if self._compress_grad=='compress':
-                            _compressed_grad = compress(simulation_grad)
-                            req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
-                        else:
-                            req_isend = self.comm.Isend([simulation_grad, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
-                    else:
-                        if self._compress_grad=='compress':
-                            _compressed_grad = compress(init_grad_data)
-                            req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+self._param_idx)
-                        else:
-                            req_isend = self.comm.Isend([init_grad_data, MPI.DOUBLE], dest=0, tag=88+self._param_idx)
-                    req_send_check.append(req_isend)
-                    req_send_check=self.network.backward_normal(logits_1.grad, self.comm, req_send_check, self.cur_step, self._fail_workers, self._err_mode, self._compress_grad)
-                    req_send_check[-1].wait()
-                    '''
                     backward_duration = time.time()-backward_start_time
                     # on the end of a certain iteration
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))

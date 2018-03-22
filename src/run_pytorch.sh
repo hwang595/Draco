@@ -1,4 +1,4 @@
-mpirun -n 8 \
+mpirun -n 8 --hostfile hosts_address \
 python distributed_nn.py \
 --lr=0.01 \
 --momentum=0.9 \

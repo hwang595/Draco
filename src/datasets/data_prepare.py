@@ -6,12 +6,6 @@ import torch
 from torchvision import datasets, transforms
 
 if __name__ == "__main__":
-	'''
-    # download data to directory ./mnist_data
-    mnist_data = mnist.read_data_sets(train_dir='./mnist_data', reshape=True)
-    # download data to directory ./cifar10_data
-    cifar10_data = cifar10.read_data_sets(padding_size=0, reshape=True)
-    '''
 	training_set_mnist = datasets.MNIST('./mnist_data', train=True, download=True,
 	           transform=transforms.Compose([
 	               transforms.ToTensor(),
