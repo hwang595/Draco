@@ -98,7 +98,6 @@ class DistributedWorker(NN_Trainer):
     def build_model(self):
         # build network
         if self.network_config == "LeNet":
-            #self.network=LeNetSplit()
             self.network=LeNet()
         elif self.network_config == "ResNet18":
             self.network=ResNetSplit18()

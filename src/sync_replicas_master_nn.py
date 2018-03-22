@@ -225,7 +225,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self.optimizer.step(grads=self._grad_aggregate_buffer, mode=self._update_mode)
 
             # update `state_dict` in pytorch modules
-            #self.model_update(tmp_module)
             update_duration = time.time() - update_start
             # reset essential elements
             self.meset_grad_buffer()
@@ -467,8 +466,6 @@ class CodedMaster(SyncReplicasMaster_NN):
 
                     layer_index = status.tag-88
 
-                    # BUG: sometimes this can be zero
-                    #received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
                     if self._compress_grad == "None":
                         received_grad=self.grad_accumulator.gradient_aggregator[layer_index][status.source-1]
                     # do gradient shape check here
@@ -523,28 +520,24 @@ class CodedMaster(SyncReplicasMaster_NN):
                     self._coded_grads_buffer[k][v.index(source)][layer_idx] = gradient
 
     def _grad_majority_vote(self):
+        '''
+        Boyer–Moore majority vote algorithm implemented:
+        (https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_majority_vote_algorithm)
+        '''
         for k, v in self._coded_grads_buffer.iteritems():
             for j, _ in enumerate(self.network.parameters()):
+                # init state
                 _maj_counter = 0
-                _maj_found = False
-                _maj_search_index = 0
-                _maj_grad = v[_maj_search_index][j]
-                while not _maj_found:
-                    for i, elem in enumerate(v):
-                        if np.array_equal(elem[j], _maj_grad):
-                            _maj_counter += 1
-                    if _maj_counter > self._group_size/2:
-                        _maj_found=True
+                for i, elem in enumerate(v):
+                    if _maj_counter == 0:
+                        _maj_grad = elem
+                    elif np.array_equal(elem[j], _maj_grad):
+                        _maj_counter += 1
                     else:
-                        _maj_counter = 0
-                        _maj_search_index += 1
-                        _maj_grad = v[_maj_search_index][j]
-                # write maj grad into grad aggregate buffer
+                        _maj_counter -= 1
                 assert self._grad_aggregate_buffer[j].shape == _maj_grad.shape
                 self._grad_aggregate_buffer[j] += _maj_grad
-        # average among groups
-        for i in range(len(self._grad_aggregate_buffer)):
-            self._grad_aggregate_buffer[i] /= len(self._group_list)
+        self._grad_aggregate_buffer = reduce(lambda x:x/float(len(self._group_list))) 
 
 
 class CyclicMaster(SyncReplicasMaster_NN):
@@ -677,7 +670,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
             update_start = time.time()
 
             # update `state_dict` in pytorch modules
-            #self.model_update(tmp_module)
             self.optimizer.step(grads=self._grad_aggregate_buffer, mode="cyclic")
             update_duration = time.time() - update_start
             # reset essential elements
@@ -722,8 +714,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
     def _obtain_E(self, alpha, E_2, s):
         # obtain E_1 in shape of n-2s by d
         self._tmp_y = np.zeros((E_2.shape[1], self.num_workers-s), dtype=complex)
-
-        #self._processing_y = np.transpose(E_2)[:, -s:]
 
         self._tmp_y[:,0:s] = np.transpose(E_2)[:, -s:]
         [self._process(s, alpha, i) for i in range(self.num_workers-2*s)]
