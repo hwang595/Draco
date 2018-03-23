@@ -12,11 +12,7 @@ from sys import getsizeof
 from nn_ops import NN_Trainer
 from optim.sgd_modified import SGDModified
 
-from model_ops.lenet import LeNet, LeNetSplit
-from model_ops.resnet import *
-from model_ops.resnet_split import *
-from model_ops.vgg import *
-from model_ops.fc_nn import FC_NN, FC_NN_Split
+from util import *
 import hdmedians as hd
 from compress_gradient import decompress
 import c_coding
@@ -520,24 +516,19 @@ class CodedMaster(SyncReplicasMaster_NN):
                     self._coded_grads_buffer[k][v.index(source)][layer_idx] = gradient
 
     def _grad_majority_vote(self):
-        '''
-        Boyer–Moore majority vote algorithm implemented:
-        (https://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_majority_vote_algorithm)
-        '''
         for k, v in self._coded_grads_buffer.iteritems():
             for j, _ in enumerate(self.network.parameters()):
-                # init state
                 _maj_counter = 0
                 for i, elem in enumerate(v):
                     if _maj_counter == 0:
-                        _maj_grad = elem
+                        _maj_grad = elem[j]
                     elif np.array_equal(elem[j], _maj_grad):
                         _maj_counter += 1
                     else:
                         _maj_counter -= 1
                 assert self._grad_aggregate_buffer[j].shape == _maj_grad.shape
                 self._grad_aggregate_buffer[j] += _maj_grad
-        self._grad_aggregate_buffer = reduce(lambda x:x/float(len(self._group_list))) 
+        self._grad_aggregate_buffer = map(lambda x:x/float(len(self._group_list)), self._grad_aggregate_buffer) 
 
 
 class CyclicMaster(SyncReplicasMaster_NN):

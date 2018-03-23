@@ -3,15 +3,9 @@ from mpi4py import MPI
 import numpy as np
 
 from nn_ops import NN_Trainer
-
-from model_ops.lenet import LeNet, LeNetSplit
-from model_ops.resnet import *
-from model_ops.resnet_split import *
-from model_ops.vgg import *
-from model_ops.fc_nn import FC_NN, FC_NN_Split
-from model_ops.utils import err_simulation
 from compress_gradient import compress
 from datasets.utils import get_batch
+from util import *
 
 import torch
 from torch.autograd import Variable
@@ -59,8 +53,6 @@ class ModelBuffer(object):
         """
         self.recv_buf = []
         self.layer_cur_step = []
-        '''initialize space to receive model from parameter server'''
-
         # consider we don't want to update the param of `BatchNorm` layer right now
         # we temporirially deprecate the foregoing version and only update the model
         # parameters
