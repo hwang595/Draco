@@ -27,31 +27,36 @@ from distributed_worker import *
 from sync_replicas_master_nn import *
 from coding import search_w
 
-#for tmp solution
-from datasets import MNISTDataset
-from datasets import Cifar10Dataset
-
 SEED_ = 428
 
-def _group_assign(world_size, group_size, rank):
-    '''
-    split N worker nodes into k=N/S groups
-    '''
-    # sanity check we assume world size is divisable by group size
-    assert world_size % group_size == 0
+def _group_identify(group_list, rank):
+    group_seeds = [0]*len(group_list)
+    if rank == 0:
+        return -1, group_seeds
+    for i,group in enumerate(group_list):
+        group_seeds[i] = np.random.randint(0, 20000)
+        if rank in group:
+            group_num = i
+    return group_num, group_seeds
+
+
+def _assign(world_size, group_size, rank):
     np.random.seed(SEED_)
     ret_group_dict={}
     k = world_size/group_size
     group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
     for i, l in enumerate(group_list):
         ret_group_dict[i]=l
-    group_seeds = [0]*k
-    if rank == 0:
-        return ret_group_dict, -1, group_seeds
-    for i,group in enumerate(group_list):
-        group_seeds[i] = np.random.randint(0, 20000)
-        if rank in group:
-            group_num = i
+    return ret_group_dict, group_list
+
+
+def _group_assign(world_size, group_size, rank):
+    if world_size % group_size == 0:
+        ret_group_dict, group_list = _assign(world_size, group_size, rank)  
+    else:
+        ret_group_dict, group_list = _assign(world_size-1, group_size, rank)
+        group_list[-1].append(world_size)
+    group_num, group_seeds = _group_identify(group_list, rank)
     return ret_group_dict, group_num, group_seeds
 
 
@@ -69,12 +74,6 @@ def _load_data(dataset, seed):
         train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
         test_loader = None
     elif dataset == "Cifar10":
-        '''
-        training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
-                                                download=True, transform=transforms.ToTensor())
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
-                                                  shuffle=True)
-        '''
         normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
                                 std=[x/255.0 for x in [63.0, 62.1, 66.7]])
         # data prep for training set
@@ -98,8 +97,6 @@ def _load_data(dataset, seed):
         # load training and test set here:
         training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
                                                 download=True, transform=transform_train)
-        #training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
-        #                                        download=True, transform=transform_test)
         train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
                                                   shuffle=True)
         testset = datasets.CIFAR10(root='./cifar10_data', train=False,
@@ -198,6 +195,7 @@ if __name__ == "__main__":
     # majority vote
     elif args.coding_method == "maj_vote":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
+
         kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
                     'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
                     'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode, 'compress_grad':args.compress_grad, 'checkpoint_step':args.checkpoint_step}

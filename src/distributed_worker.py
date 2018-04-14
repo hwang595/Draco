@@ -19,16 +19,6 @@ STEP_START_ = 1
 _FACTOR = 23
 TAG_LIST_ = [i*30 for i in range(50000)]
 
-def prepare_grad_list(params):
-    grad_list = []
-    for param_idx, param in enumerate(params):
-        # get gradient from layers here
-        # in this version we fetch weights at once
-        # remember to change type here, which is essential
-        grads = param.grad.data.numpy().astype(np.float64)
-        grad_list.append((param_idx, grads))
-    return grad_list
-
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
     maxk = max(topk)
@@ -102,7 +92,7 @@ class DistributedWorker(NN_Trainer):
         elif self.network_config == "ResNet152":
             self.network=ResNetSplit152()
         elif self.network_config == "FC":
-            self.network=FC_NN_Split()
+            self.network=FC_NN()
         elif self.network_config == "VGG11":
             self.network=vgg11_bn()
         elif self.network_config == "VGG13":
@@ -119,7 +109,6 @@ class DistributedWorker(NN_Trainer):
         self.criterion = nn.CrossEntropyLoss()
         # assign a buffer for receiving models from parameter server
         self.init_recv_buf()
-        #self._param_idx = len(self.network.full_modules)*2-1
         if "ResNet" in self.network_config:
             self._param_idx = self.network.fetch_init_channel_index-1
 
@@ -175,7 +164,6 @@ class DistributedWorker(NN_Trainer):
                         self.async_fetch_weights_bcast()
                     elif self.comm_type == "Async":
                         self.async_fetch_weights_async()
-
                     fetch_weight_duration = time.time() - fetch_weight_start_time
 
                     # switch to training mode
@@ -195,18 +183,16 @@ class DistributedWorker(NN_Trainer):
                     # TODO(hwang): figure out a better way to do this
                     computation_time = time.time() - forward_start_time
                     # backward step
-                    backward_start_time = time.time()
-
                     if "ResNet" in self.network_config:
                         self._backward(loss, logits_1)
                     else:
-                        self._backward(loss)
-                    backward_duration = time.time()-backward_start_time
+                        computation_time, c_duration = self._backward(loss, computation_time=computation_time)
+                    
                     # on the end of a certain iteration
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
-                    print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                    print('Worker: {}, Step: {}, Epoch: {} [{}/{} ({:.0f}%)], Loss: {:.4f}, Time Cost: {:.4f}, Comp: {:.4f}, Comm: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
                          self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, c_duration+fetch_weight_duration, prec1.numpy()[0], prec5.numpy()[0]))
                     # break here to fetch data then enter fetching step loop again
                     if self.cur_step%self._eval_freq == 0 and self.rank==1:
                         if "ResNet" in self.network_config:
@@ -281,8 +267,10 @@ class DistributedWorker(NN_Trainer):
             new_state_dict.update(tmp_dict)
         self.network.load_state_dict(new_state_dict)
 
-    def _backward(self, loss, logits_1=None):
+    def _backward(self, loss, logits_1=None, computation_time=None):
+        b_start = time.time()
         loss.backward()
+        b_duration = time.time() - b_start
         if "ResNet" in self.network_config:
             req_send_check = []
             init_grad_data = logits_1.grad.data.numpy()
@@ -306,7 +294,11 @@ class DistributedWorker(NN_Trainer):
             req_send_check=self.network.backward_normal(logits_1.grad, self.comm, req_send_check, self.cur_step, self._fail_workers, self._err_mode, self._compress_grad)
             req_send_check[-1].wait()
         else:
+            computation_time += b_duration
+            c_start = time.time()
             self._send_grads()
+            c_duration = time.time() - c_start
+            return computation_time, c_duration
 
     def _send_grads(self):
         req_send_check = []
@@ -334,8 +326,7 @@ class DistributedWorker(NN_Trainer):
             data, target = Variable(data, volatile=True), Variable(y_batch)
             output = self.network(data)
             test_loss += F.nll_loss(output, target, size_average=False).data[0] # sum up batch loss
-            #pred = output.data.max(1, keepdim=True)[1] # get the index of the max log-probability
-            #correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+            
             prec1_tmp, prec5_tmp = accuracy(output.data, y_batch, topk=(1, 5))
             prec1_counter_ += prec1_tmp.numpy()[0]
             prec5_counter_ += prec5_tmp.numpy()[0]
@@ -389,7 +380,7 @@ class CodedWorker(DistributedWorker):
         elif kwargs['worker_fail'] <= len(self._group_list):
             _fail_per_group = 1
             self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1) if i < kwargs['worker_fail']]
-        
+
         self._group_seeds = kwargs['group_seeds'] 
         self._group_num = kwargs['group_num'] # which group this worker belongs to
         self._group_size = len(self._group_list[0])

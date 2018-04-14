@@ -522,6 +522,7 @@ class CodedMaster(SyncReplicasMaster_NN):
                 for i, elem in enumerate(v):
                     if _maj_counter == 0:
                         _maj_grad = elem[j]
+                        _maj_counter = 1
                     elif np.array_equal(elem[j], _maj_grad):
                         _maj_counter += 1
                     else:
