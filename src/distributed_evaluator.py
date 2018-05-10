@@ -118,7 +118,7 @@ if __name__ == "__main__":
     # load training and test set here:
     if args.dataset == "MNIST":
         test_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data', train=False, transform=transforms.Compose([
+            datasets.MNIST('./mnist_data', train=False, transform=transforms.Compose([
                        transforms.ToTensor(),
                        transforms.Normalize((0.1307,), (0.3081,))
                    ])), batch_size=args.eval_batch_size, shuffle=True)

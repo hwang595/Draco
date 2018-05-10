@@ -98,6 +98,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         '''
         self.comm = comm   # get MPI communicator object
         self.world_size = comm.Get_size() # total number of processes
+        self.num_workers = self.world_size-1
         self.cur_step = STEP_START_
         self.lr = kwargs['learning_rate']
         self.momentum = kwargs['momentum']
@@ -117,6 +118,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         self._update_mode = kwargs['update_mode']
         self._compress_grad = kwargs['compress_grad']
         self._checkpoint_step = kwargs['checkpoint_step']
+        self._s = kwargs['worker_fail']
 
     def build_model(self):
         # build network
@@ -214,6 +216,10 @@ class SyncReplicasMaster_NN(NN_Trainer):
                 method_start = time.time()
                 self._get_geo_median()
                 method_duration = time.time()-method_start
+            elif self._update_mode == "krum":
+                method_start = time.time()
+                self._krum()
+                method_duration = time.time()-method_start
 
             # update using SGD method
             update_start = time.time()
@@ -237,7 +243,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
             self._model_shapes.append(param.size())
             if self._update_mode == "normal":
                 self._grad_aggregate_buffer.append(np.zeros(param.size()))
-            elif self._update_mode == "geometric_median":
+            elif self._update_mode in ("geometric_median", "krum"):
                 self._grad_aggregate_buffer.append([])
 
     def async_bcast_step(self):
@@ -292,7 +298,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         '''
         if self._update_mode == "normal":
             self._grad_aggregate_buffer[layer_idx] += gradient
-        elif self._update_mode == "geometric_median":
+        elif self._update_mode in ("geometric_median", "krum"):
             _shape = gradient.shape
             if len(_shape)==1:
                 self._grad_aggregate_buffer[layer_idx].append(gradient)             
@@ -318,7 +324,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         for i in range(len(self._grad_aggregate_buffer)):
             if self._update_mode == "normal" or self._update_mode == "maj_vote":
                 self._grad_aggregate_buffer[i] = np.zeros(self._grad_aggregate_buffer[i].shape)
-            elif self._update_mode == "geometric_median":
+            elif self._update_mode in ("geometric_median", "krum"):
                 self._grad_aggregate_buffer[i] = []
 
     def _generate_model_path(self):
@@ -361,6 +367,26 @@ class SyncReplicasMaster_NN(NN_Trainer):
             geo_median = np.array(hd.geomedian(np.array(grads), axis=0))
             self._grad_aggregate_buffer[g_idx] = geo_median
         print("Master Step: {} Found Geo Median Cost: {:.4f}".format(self.cur_step, time.time()-geo_median_start))
+
+    def _krum(self):
+        def __krum(grad_list, s):
+            '''
+            Method introduced by: https://arxiv.org/abs/1703.02757
+            '''
+            score = []
+            for i, g_i in enumerate(grad_list):
+                neighbor_distances = []
+                for j, g_j in enumerate(grad_list):
+                    if i != j:
+                        neighbor_distances.append(np.linalg.norm(g_i-g_j)**2)
+                score.append(sum(np.sort(neighbor_distances)[0:self.num_workers-s-2]))
+            i_star = score.index(min(score))
+            return grad_list[i_star]
+        krum_start = time.time()
+        for g_idx, grads in enumerate(self._grad_aggregate_buffer):
+            krum_median = __krum(grads, self._s)
+            self._grad_aggregate_buffer[g_idx] = krum_median
+        print("Master Step: {} Krum Cost: {:.4f}".format(self.cur_step, time.time()-krum_start))
 
 
 class CodedMaster(SyncReplicasMaster_NN):
@@ -691,6 +717,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         estimation = np.dot(self._estimator, self._poly_a)
 
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]
+        err_indices = [i for i in range(self.s, self.num_workers)]
 
         recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*self.s),axis=0)
 

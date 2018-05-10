@@ -175,12 +175,39 @@ if __name__ == "__main__":
 
     if args.coding_method == "baseline":
         train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=None)
-        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'update_mode':args.mode, 'compress_grad':args.compress_grad, 'checkpoint_step':args.checkpoint_step}
-        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'checkpoint_step':args.checkpoint_step}
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'kill_threshold': args.num_aggregate, 
+                    'timeout_threshold':args.kill_threshold,
+                    'worker_fail':args.worker_fail,
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'update_mode':args.mode, 
+                    'compress_grad':args.compress_grad, 
+                    'checkpoint_step':args.checkpoint_step
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'kill_threshold':args.kill_threshold, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode, 
+                    'compress_grad':args.compress_grad, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'checkpoint_step':args.checkpoint_step
+                    }
         if rank == 0:
             master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
@@ -196,13 +223,42 @@ if __name__ == "__main__":
     elif args.coding_method == "maj_vote":
         group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
 
-        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'kill_threshold': args.num_aggregate, 'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'group_list':group_list, 'update_mode':args.mode, 'compress_grad':args.compress_grad, 'checkpoint_step':args.checkpoint_step}
-        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'kill_threshold':args.kill_threshold, 'adversery':args.adversarial, 'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 'group_list':group_list, 'group_seeds':group_seeds, 'group_num':group_num,
-                    'err_case':args.err_case, 'compress_grad':args.compress_grad, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'kill_threshold': args.num_aggregate, 
+                    'timeout_threshold':args.kill_threshold,
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'group_list':group_list, 
+                    'update_mode':args.mode, 
+                    'compress_grad':args.compress_grad, 
+                    'checkpoint_step':args.checkpoint_step
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'kill_threshold':args.kill_threshold, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode, 
+                    'group_list':group_list, 
+                    'group_seeds':group_seeds, 
+                    'group_num':group_num,
+                    'err_case':args.err_case, 
+                    'compress_grad':args.compress_grad, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir
+                    }
         if rank == 0:
             coded_master = CodedMaster(comm=comm, **kwargs_master)
             coded_master.build_model()
@@ -219,12 +275,38 @@ if __name__ == "__main__":
         W, fake_W, W_perp, S, C_1 = search_w(world_size-1, args.worker_fail)
         # for debug print
         #np.set_printoptions(precision=4,linewidth=200.0)
-        kwargs_master = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'max_steps':args.max_steps, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir, 'compress_grad':args.compress_grad, 'W_perp':W_perp, 'W':W, 'worker_fail':args.worker_fail,
-                    'decoding_S':S, 'C_1':C_1}
-        kwargs_worker = {'batch_size':args.batch_size, 'learning_rate':args.lr, 'max_epochs':args.epochs, 'momentum':args.momentum, 'network':args.network,
-                    'comm_method':args.comm_type, 'adversery':args.adversarial, 'worker_fail':args.worker_fail, 'err_mode':args.err_mode, 'compress_grad':args.compress_grad,
-                     'encoding_matrix':W, 'seed':SEED_, 'fake_W':fake_W, 'eval_freq':args.eval_freq, 'train_dir':args.train_dir}
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'compress_grad':args.compress_grad, 
+                    'W_perp':W_perp, 'W':W, 
+                    'worker_fail':args.worker_fail,
+                    'decoding_S':S, 'C_1':C_1
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail, 
+                    'err_mode':args.err_mode, 
+                    'compress_grad':args.compress_grad,
+                    'encoding_matrix':W, 
+                    'seed':SEED_, 
+                    'fake_W':fake_W, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir
+                    }
         if rank == 0:
             new_master = CyclicMaster(comm=comm, **kwargs_master)
             new_master.build_model()

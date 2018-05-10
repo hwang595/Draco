@@ -473,22 +473,24 @@ class CodedWorker(DistributedWorker):
                     # backward step
                     backward_start_time = time.time()
                     loss.backward()
-                    computation_time = time.time() - forward_start_time
-
                     init_grad_data = logits_1.grad.data.numpy()
                     init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
-
                     grads=self.network.backward_coded(logits_1.grad, self.cur_step)
+                    backward_duration = time.time() - backward_start_time
+                    computation_time = forward_duration + backward_duration
 
                     if "ResNet" in self.network_config:
                         grads.insert(0,init_grad_data)
 
                     prec1, prec5 = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                     # in current setting each group cotains k workers, we let each worker calculate k same batches
+                    c_start = time.time()
                     self._send_grads(grads)
-                    print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
+                    c_duration = time.time() - c_start
+
+                    print('Worker: {}, Step: {}, Epoch: {} [{}/{} ({:.0f}%)], Loss: {:.4f}, Time Cost: {:.4f}, Comp: {:.4f}, Comm: {:.4f}, Prec@1: {}, Prec@5: {}'.format(self.rank,
                          self.cur_step, num_epoch, batch_idx * self.batch_size, len(train_loader.dataset), 
-                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, prec1.numpy()[0], prec5.numpy()[0]))
+                            (100. * (batch_idx * self.batch_size) / len(train_loader.dataset)), loss.data[0], time.time()-iter_start_time, computation_time, c_duration+fetch_weight_duration, prec1.numpy()[0], prec5.numpy()[0]))
                     if self.cur_step%self._eval_freq == 0 and self.rank==1:
                         #self._save_model(file_path=self._generate_model_path())
                         if "ResNet" in self.network_config:
@@ -626,14 +628,12 @@ class CyclicWorker(DistributedWorker):
                     first = False
                     should_enter_next = False
                     print("Rank of this node: {}, Current step: {}".format(self.rank, self.cur_step))
-                    # TODO(hwang): return layer request here and do weight before the forward step begins, rather 
-                    # than implement the wait() in the fetch function
-                    fetch_weight_start_time = time.time()
-
                     # fetch weight
+                    fetch_weight_start_time = time.time()
                     self.async_fetch_weights_bcast()
                     fetch_weight_duration = time.time() - fetch_weight_start_time
                     # calculating on coded batches
+                    comp_start = time.time()
                     for b in range(self._hat_s):
                         local_batch_indices = np.where(self._fake_W[self.rank-1]!=0)[0]
                         _batch_bias = local_batch_indices[b]*self.batch_size
@@ -644,17 +644,13 @@ class CyclicWorker(DistributedWorker):
                         self.network.train()
                         self.optimizer.zero_grad()
                         # forward step
-                        forward_start_time = time.time()
                         logits = self.network(X_batch)
-
                         logits_1 = Variable(logits.data, requires_grad=True)
                         loss = self.criterion(logits_1, y_batch)
-                        forward_duration = time.time()-forward_start_time
 
                         # backward step
                         backward_start_time = time.time()
                         loss.backward()
-                        computation_time = time.time() - forward_start_time
 
                         init_grad_data = logits_1.grad.data.numpy()
                         init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
@@ -666,11 +662,14 @@ class CyclicWorker(DistributedWorker):
                         grad_collector[_batch_bias/self.batch_size] = grads
                         _prec1, _ = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                         _precision_counter += _prec1.numpy()[0]
+                    comp_duration = time.time() - comp_start
                     # send linear combinations of gradients of multiple batches
-                    self._send_grads(grad_collector)
-                    print('Worker: {}, Cur Step: {}, Train Epoch: {} [{}/{} ({:.0f}%)], Train Loss: {:.4f}, Time Cost: {:.4f}, Computation Time: {:.4f}, Prec@1: {}'.format(self.rank,
+                    encode_counter = 0
+                    comm_counter = 0
+                    encode_cost, comm_cost=self._send_grads(grad_collector, encode_counter, comm_counter)
+                    print('Worker: {}, Step: {}, Epoch: {} [{}/{} ({:.0f}%)], Loss: {:.4f}, Time Cost: {:.4f}, Comp: {:.4f}, Comm: {:.4f}, Encode: {:.4f}, Prec@1: {}'.format(self.rank,
                         self.cur_step, num_epoch, batch_idx * self.batch_size, len(training_set), 
-                        (100. * (batch_idx * self.batch_size) / len(training_set)), loss.data[0], time.time()-iter_start_time, computation_time, _precision_counter/self._hat_s))
+                        (100. * (batch_idx * self.batch_size) / len(training_set)), loss.data[0], time.time()-iter_start_time, comp_duration, comm_cost, encode_cost, _precision_counter/self._hat_s))
                     if self.cur_step%self._eval_freq == 0 and self.rank==1:
                         if "ResNet" in self.network_config:
                             self._evaluate_model(test_loader)
@@ -679,16 +678,19 @@ class CyclicWorker(DistributedWorker):
                             pass
                     break
 
-    def _send_grads(self, grad_collector):
+    def _send_grads(self, grad_collector, encode_counter, comm_counter):
         '''
         note that at here we're not sending anything about gradient but linear combination of gradients
         '''
         req_send_check = []
         for i, param in enumerate(reversed(grad_collector[grad_collector.keys()[0]])):
+            tmp_encode_start = time.time()
             aggregated_grad = np.zeros(param.shape, dtype=complex)
             # calculate combined gradients
             for k, v in grad_collector.iteritems():
                 aggregated_grad = np.add(aggregated_grad, np.dot(self._W[self.rank-1][k], v[len(v)-i-1]))
+            encode_counter += (time.time() - tmp_encode_start)
+            tmp_comm_start = time.time()
             # send grad to master
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
@@ -701,7 +703,11 @@ class CyclicWorker(DistributedWorker):
                 _compressed_grad = compress(aggregated_grad)
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
                 req_send_check.append(req_isend)
+            comm_counter += (time.time() - tmp_comm_start)
+        tmp_comm_start = time.time()
         req_send_check[-1].wait()
+        comm_counter += time.time() - tmp_comm_start
+        return encode_counter, comm_counter
 
 if __name__ == "__main__":
     # this is only a simple test case
