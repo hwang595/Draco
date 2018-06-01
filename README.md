@@ -6,4 +6,11 @@ Draco is a scalable framework for robust distributed training that uses ideasfro
 
 <div align="center"><img src="https://github.com/hwang595/Draco/blob/master/images/Draco.jpg" height="400" width="450" ></div>
 
-In Draco, each compute node processes *rB/P* gradients and sends a linear combination of those to the PS. This means that Draco incurs a computational redundancy ratio of *r*. Upon receiving the *P* gradient sums, the PS uses a “decoding” function to remove the effect of the adversarial nodes and reconstruct the original desired sum of the B gradients. With redundancy ratio *r*, we show that Draco can tolerate up to *r − 1)/2* adversaries, which is information theoretically tight. 
+In Draco, each compute node processes *rB/P* gradients and sends a linear combination of those to the PS. This means that Draco incurs a computational redundancy ratio of *r*. Upon receiving the *P* gradient sums, the PS uses a “decoding” function to remove the effect of the adversarial nodes and reconstruct the original desired sum of the B gradients. With redundancy ratio *r*, we show that Draco can tolerate up to *(r − 1)/2* adversaries, which is information theoretically tight. 
+
+# Depdendencies:
+Tested stable depdencises:
+* python 2.7 (Anaconda)
+* PyTorch 0.3.0 (*please note that, we're moving to PyTorch 0.4.0, and 1.0.x*)
+* MPI4Py 0.3.0
+* python-blosc 1.5.0
