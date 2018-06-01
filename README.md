@@ -4,4 +4,4 @@ This repository contains source code for Draco, a scalable framework for robust 
 # Overview:
 Draco is a scalable framework for robust distributed training that uses ideasfrom coding theory. In Draco, compute nodes evaluate redundant gradients that are then used by the parameter server (PS) to eliminate the effects of adversarial updates.
 
-<div align="center"><img src="https://github.com/hwang595/Draco/blob/master/images/Draco.pdf" height="400" width="600" ></div>
+<div align="center"><img src="https://github.com/hwang595/Draco/blob/master/images/Draco.jpg" height="400" width="600" ></div>
