@@ -15,6 +15,7 @@ Tested stable depdencises:
 * torchvision 0.1.18
 * MPI4Py 0.3.0
 * python-blosc 1.5.0
+* [hdmedians](https://github.com/daleroberts/hdmedians)
 
 We highly recommend installing an [Anaconda](https://www.continuum.io/downloads) environment.
 You will get a high-quality BLAS library (MKL) and you get a controlled compiler version regardless of your Linux distro.
