@@ -16,7 +16,7 @@ Tested stable depdencises:
 * MPI4Py 0.3.0
 * python-blosc 1.5.0
 
-If you are installing from source, we highly recommend installing an [Anaconda](https://www.continuum.io/downloads) environment.
+We highly recommend installing an [Anaconda](https://www.continuum.io/downloads) environment.
 You will get a high-quality BLAS library (MKL) and you get a controlled compiler version regardless of your Linux distro.
 
 Once you have [Anaconda](https://www.continuum.io/downloads) installed, here are the instructions.
