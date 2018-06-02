@@ -16,7 +16,6 @@ python distributed_nn.py \
 --max-steps=1000000 \
 --worker-fail=2 \
 --group-size=3 \
---err-case=worst_case \
 --compress-grad=compress \
 --checkpoint-step=0 \
 --train-dir=/home/ubuntu/

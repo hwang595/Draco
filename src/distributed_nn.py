@@ -26,84 +26,10 @@ from data_loader_ops.my_data_loader import DataLoader
 from distributed_worker import *
 from sync_replicas_master_nn import *
 from coding import search_w
+from util import *
 
 SEED_ = 428
 
-def _group_identify(group_list, rank):
-    group_seeds = [0]*len(group_list)
-    if rank == 0:
-        return -1, group_seeds
-    for i,group in enumerate(group_list):
-        group_seeds[i] = np.random.randint(0, 20000)
-        if rank in group:
-            group_num = i
-    return group_num, group_seeds
-
-
-def _assign(world_size, group_size, rank):
-    np.random.seed(SEED_)
-    ret_group_dict={}
-    k = world_size/group_size
-    group_list=[[j+i*group_size+1 for j in range(group_size)] for i in range(k)]
-    for i, l in enumerate(group_list):
-        ret_group_dict[i]=l
-    return ret_group_dict, group_list
-
-
-def _group_assign(world_size, group_size, rank):
-    if world_size % group_size == 0:
-        ret_group_dict, group_list = _assign(world_size, group_size, rank)  
-    else:
-        ret_group_dict, group_list = _assign(world_size-1, group_size, rank)
-        group_list[-1].append(world_size)
-    group_num, group_seeds = _group_identify(group_list, rank)
-    return ret_group_dict, group_num, group_seeds
-
-
-def _load_data(dataset, seed):
-    if seed:
-        # in normal method we do not implement random seed here
-        # same group should share the same shuffling result
-        torch.manual_seed(seed)
-        random.seed(seed)
-    if dataset == "MNIST":
-        training_set = datasets.MNIST('./mnist_data', train=True, download=True,
-                   transform=transforms.Compose([
-                       transforms.ToTensor(),
-                       transforms.Normalize((0.1307,), (0.3081,))]))
-        train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
-        test_loader = None
-    elif dataset == "Cifar10":
-        normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
-                                std=[x/255.0 for x in [63.0, 62.1, 66.7]])
-        # data prep for training set
-        # note that the key point to reach convergence performance reported in this paper (https://arxiv.org/abs/1512.03385)
-        # is to implement data augmentation
-        transform_train = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Lambda(lambda x: F.pad(
-                                Variable(x.unsqueeze(0), requires_grad=False, volatile=True),
-                                (4,4,4,4),mode='reflect').data.squeeze()),
-            transforms.ToPILImage(),
-            transforms.RandomCrop(32),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-            ])
-        # data prep for test set
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            normalize])
-        # load training and test set here:
-        training_set = datasets.CIFAR10(root='./cifar10_data', train=True,
-                                                download=True, transform=transform_train)
-        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size,
-                                                  shuffle=True)
-        testset = datasets.CIFAR10(root='./cifar10_data', train=False,
-                                               download=True, transform=transform_test)
-        test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size,
-                                                 shuffle=False)
-    return train_loader, training_set, test_loader
 
 def add_fit_args(parser):
     """
@@ -156,8 +82,6 @@ def add_fit_args(parser):
                         help='how many number of worker nodes we want to simulate byzantine error on')
     parser.add_argument('--group-size', type=int, default=5, metavar='N',
                         help='in majority vote how many worker nodes are in a certain group')
-    parser.add_argument('--err-case', type=str, default='best_case', metavar='N',
-                        help='best_case or worst_case will affect the time cost for majority vote in adversarial coding')
     parser.add_argument('--compress-grad', type=str, default='compress', metavar='N',
                         help='compress/none indicate if we compress the gradient matrix before communication')
     parser.add_argument('--checkpoint-step', type=int, default=0, metavar='N',
@@ -171,7 +95,7 @@ if __name__ == "__main__":
     rank = comm.Get_rank()
     world_size = comm.Get_size()
 
-    args = add_fit_args(argparse.ArgumentParser(description='PyTorch MNIST Single Machine Test'))
+    args = add_fit_args(argparse.ArgumentParser(description='Draco'))
 
     if args.coding_method == "baseline":
         train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=None)
@@ -219,10 +143,10 @@ if __name__ == "__main__":
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
             worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
+            print("Now the next step is: {}".format(worker_fc_nn.next_step))
     # majority vote
     elif args.coding_method == "maj_vote":
-        group_list, group_num, group_seeds=_group_assign(world_size-1, args.group_size, rank)
-
+        group_list, group_num, group_seeds=group_assign(world_size-1, args.group_size, rank)
         kwargs_master = {
                     'batch_size':args.batch_size, 
                     'learning_rate':args.lr, 
@@ -254,7 +178,6 @@ if __name__ == "__main__":
                     'group_list':group_list, 
                     'group_seeds':group_seeds, 
                     'group_num':group_num,
-                    'err_case':args.err_case, 
                     'compress_grad':args.compress_grad, 
                     'eval_freq':args.eval_freq, 
                     'train_dir':args.train_dir
@@ -264,12 +187,14 @@ if __name__ == "__main__":
             coded_master.build_model()
             print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
             coded_master.start()
+            print("Done sending messages to workers!")
         else:
             train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
             coded_worker = CodedWorker(comm=comm, **kwargs_worker)
             coded_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
             coded_worker.train(train_loader=train_loader, test_loader=test_loader)
+            print("Now the next step is: {}".format(coded_worker.next_step))
     # cyclic code
     elif args.coding_method == "cyclic":
         W, fake_W, W_perp, S, C_1 = search_w(world_size-1, args.worker_fail)
@@ -308,13 +233,15 @@ if __name__ == "__main__":
                     'train_dir':args.train_dir
                     }
         if rank == 0:
-            new_master = CyclicMaster(comm=comm, **kwargs_master)
-            new_master.build_model()
-            print("I am the master: the world size is {}, cur step: {}".format(new_master.world_size, new_master.cur_step))
-            new_master.start()
+            cyclic_master = CyclicMaster(comm=comm, **kwargs_master)
+            cyclic_master.build_model()
+            print("I am the master: the world size is {}, cur step: {}".format(cyclic_master.world_size, cyclic_master.cur_step))
+            cyclic_master.start()
+            print("Done sending messages to workers!")
         else:
             _, training_set, test_loader = _load_data(dataset=args.dataset, seed=SEED_)
-            new_worker = CyclicWorker(comm=comm, **kwargs_worker)
-            new_worker.build_model()
-            print("I am worker: {} in all {} workers, next step: {}".format(new_worker.rank, new_worker.world_size-1, new_worker.next_step))
-            new_worker.train(training_set=training_set, test_loader=test_loader)
+            cyclic_worker = CyclicWorker(comm=comm, **kwargs_worker)
+            cyclic_worker.build_model()
+            print("I am worker: {} in all {} workers, next step: {}".format(cyclic_worker.rank, cyclic_worker.world_size-1, cyclic_worker.next_step))
+            cyclic_worker.train(training_set=training_set, test_loader=test_loader)
+            rint("Now the next step is: {}".format(coded_worker.next_step))

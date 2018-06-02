@@ -370,7 +370,6 @@ class CodedWorker(DistributedWorker):
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
         self._group_list = kwargs['group_list']
-        self._err_case = kwargs['err_case']
         self._train_dir = kwargs['train_dir']
         self._eval_freq = kwargs['eval_freq']
 
