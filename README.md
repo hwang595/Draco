@@ -12,8 +12,19 @@ In Draco, each compute node processes *rB/P* gradients and sends a linear combin
 Tested stable depdencises:
 * python 2.7 (Anaconda)
 * PyTorch 0.3.0 (*please note that, we're moving to PyTorch 0.4.0, and 1.0.x*)
+* torchvision 0.1.18
 * MPI4Py 0.3.0
 * python-blosc 1.5.0
+
+If you are installing from source, we highly recommend installing an [Anaconda](https://www.continuum.io/downloads) environment.
+You will get a high-quality BLAS library (MKL) and you get a controlled compiler version regardless of your Linux distro.
+
+Once you have [Anaconda](https://www.continuum.io/downloads) installed, here are the instructions.
+
+We provide [this script](https://github.com/hwang595/Draco/blob/master/tools/pre_run.sh) to help you with building all dependencies. To do that you can run:
+```
+bash ./tools/pre_run.sh
+```
 
 ## Cluster Setup:
 For running on distributed cluster, the first thing you need do is to launch AWS EC2 instances.
