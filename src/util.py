@@ -1,3 +1,7 @@
+import random
+
+from torchvision import datasets, transforms
+
 from model_ops.lenet import LeNet, LeNetSplit
 from model_ops.resnet import *
 from model_ops.resnet_split import *
@@ -5,10 +9,12 @@ from model_ops.vgg import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 from model_ops.utils import err_simulation
 
+SEED_ = 428
+
 def build_model(model_name):
     pass
 
-def _load_data(dataset, seed):
+def load_data(dataset, seed, args):
     if seed:
         # in normal method we do not implement random seed here
         # same group should share the same shuffling result
@@ -19,7 +25,7 @@ def _load_data(dataset, seed):
                    transform=transforms.Compose([
                        transforms.ToTensor(),
                        transforms.Normalize((0.1307,), (0.3081,))]))
-        train_loader = DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
+        train_loader = torch.utils.data.DataLoader(training_set, batch_size=args.batch_size, shuffle=True)
         test_loader = None
     elif dataset == "Cifar10":
         normalize = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],

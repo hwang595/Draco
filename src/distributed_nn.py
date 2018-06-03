@@ -5,7 +5,6 @@ import math
 import threading
 import argparse
 import time
-import random
 
 import numpy as np
 from mpi4py import MPI
@@ -13,22 +12,15 @@ from mpi4py import MPI
 import torch
 from torch.autograd import Variable
 from torch import nn
-from torch.nn.parallel.replicate import replicate
-from torch.nn.parallel.scatter_gather import scatter_kwargs, gather
-from torch.nn.parallel.parallel_apply import parallel_apply
 import torch.nn.functional as F
-
-from torchvision import datasets, transforms
 
 from nn_ops import NN_Trainer, accuracy
 from data_loader_ops.my_data_loader import DataLoader
 
-from distributed_worker import *
-from sync_replicas_master_nn import *
+from master import baseline_master, rep_master, cyclic_master
+from worker import baseline_worker, rep_worker, cyclic_worker
 from coding import search_w
 from util import *
-
-SEED_ = 428
 
 
 def add_fit_args(parser):
@@ -90,7 +82,6 @@ def add_fit_args(parser):
     return args
 
 if __name__ == "__main__":
-    # this is only a simple test case
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     world_size = comm.Get_size()
@@ -98,7 +89,7 @@ if __name__ == "__main__":
     args = add_fit_args(argparse.ArgumentParser(description='Draco'))
 
     if args.coding_method == "baseline":
-        train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=None)
+        train_loader, _, test_loader = load_data(dataset=args.dataset, seed=None, args=args)
         kwargs_master = {
                     'batch_size':args.batch_size, 
                     'learning_rate':args.lr, 
@@ -133,13 +124,13 @@ if __name__ == "__main__":
                     'checkpoint_step':args.checkpoint_step
                     }
         if rank == 0:
-            master_fc_nn = SyncReplicasMaster_NN(comm=comm, **kwargs_master)
+            master_fc_nn = baseline_master.SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
             print("I am the master: the world size is {}, cur step: {}".format(master_fc_nn.world_size, master_fc_nn.cur_step))
             master_fc_nn.start()
             print("Done sending messages to workers!")
         else:
-            worker_fc_nn = DistributedWorker(comm=comm, **kwargs_worker)
+            worker_fc_nn = baseline_worker.DistributedWorker(comm=comm, **kwargs_worker)
             worker_fc_nn.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(worker_fc_nn.rank, worker_fc_nn.world_size-1, worker_fc_nn.next_step))
             worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
@@ -183,14 +174,14 @@ if __name__ == "__main__":
                     'train_dir':args.train_dir
                     }
         if rank == 0:
-            coded_master = CodedMaster(comm=comm, **kwargs_master)
+            coded_master = rep_master.CodedMaster(comm=comm, **kwargs_master)
             coded_master.build_model()
             print("I am the master: the world size is {}, cur step: {}".format(coded_master.world_size, coded_master.cur_step))
             coded_master.start()
             print("Done sending messages to workers!")
         else:
-            train_loader, _, test_loader = _load_data(dataset=args.dataset, seed=group_seeds[group_num])
-            coded_worker = CodedWorker(comm=comm, **kwargs_worker)
+            train_loader, _, test_loader = load_data(dataset=args.dataset, seed=group_seeds[group_num], args=args)
+            coded_worker = rep_worker.CodedWorker(comm=comm, **kwargs_worker)
             coded_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
             coded_worker.train(train_loader=train_loader, test_loader=test_loader)
@@ -233,14 +224,14 @@ if __name__ == "__main__":
                     'train_dir':args.train_dir
                     }
         if rank == 0:
-            cyclic_master = CyclicMaster(comm=comm, **kwargs_master)
+            cyclic_master = cyclic_master.CyclicMaster(comm=comm, **kwargs_master)
             cyclic_master.build_model()
             print("I am the master: the world size is {}, cur step: {}".format(cyclic_master.world_size, cyclic_master.cur_step))
             cyclic_master.start()
             print("Done sending messages to workers!")
         else:
-            _, training_set, test_loader = _load_data(dataset=args.dataset, seed=SEED_)
-            cyclic_worker = CyclicWorker(comm=comm, **kwargs_worker)
+            _, training_set, test_loader = load_data(dataset=args.dataset, seed=SEED_, args=args)
+            cyclic_worker = cyclic_worker.CyclicWorker(comm=comm, **kwargs_worker)
             cyclic_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(cyclic_worker.rank, cyclic_worker.world_size-1, cyclic_worker.next_step))
             cyclic_worker.train(training_set=training_set, test_loader=test_loader)
