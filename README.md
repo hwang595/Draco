@@ -97,3 +97,46 @@ We currently support [MNIST](http://yann.lecun.com/exdb/mnist/) and [Cifar10](ht
 ```
 bash ./src/data_prepare.sh
 ```
+
+## Job Launching
+Since this project is built on MPI, tasks are required to be launched by PS (or master) instance. `run_pytorch.sh` wraps job-launching process up. Commonly used options (arguments) are listed as following:
+
+| Argument                      | Comments                                 |
+| ----------------------------- | ---------------------------------------- |
+| `n`                     | Number of processes (size of cluster) e.g. if we have P compute node and 1 PS, n=P+1. |
+| `hostfile`      | A directory to the file that contains Private IPs of every node in the cluster, we use `hosts_address` here as [mentioned before](#launching-instances). |
+| `lr` | Inital learning rate that will be use. |
+| `momentum` | Value of momentum that will be use. |
+| `network` | Types of deep neural nets, currently `LeNet`, `ResNet-18/32/50/110/152`, and `VGGs` are supported. |
+| `dataset` | Datasets use for training. |
+| `batch-size` | Batch size for optimization algorithms. |
+| `comm-type` | A fake parameter, please always set it to be `Bcast`. |
+| `mode` | Update mode used on PS, e.g. geometric median, Krum, majority vote, and etc. |
+| `approach` | Approach used in experiments, e.g. baseline method or Draco (repition code or cyclic code). |
+| `err-mode` | Mode of simulated adversaries, reverse gradient adversary and constant adversary are currently supported. |
+| `adversarial` | Magnitude of adversaries. |
+| `worker-fail` | Number of adversarial nodes simulated in the cluster. |
+| `group-size` | Used for repitition code in specific, for group size of workers. |
+| `max-steps` | The maximum number of iterations to train. |
+| `epochs`                  | The maximal number of epochs to train (somehow redundant).   |
+| `eval-freq` | Frequency of iterations to evaluation the model. |
+| `enable-gpu`| Training on CPU/GPU, if CPU please leave this argument empty. |
+|`train-dir`  | Directory to save model checkpoints for evaluation. |
+
+## Model Evaluation
+[Distributed evaluator](https://github.com/hwang595/Draco/blob/master/src/distributed_evaluator.py) will fetch model checkpoints from the shared directory and evaluate model on validation set.
+To evaluate model, you can run
+```
+bash ./src/evaluate_pytorch.sh
+```
+with specified arguments.
+
+Evaluation arguments are listed as following:
+
+| Argument                      | Comments                                 |
+| ----------------------------- | ---------------------------------------- |
+| `eval-batch-size`             | Batch size (on validation set) used during model evaluation. |
+| `eval-freq`      | Frequency of iterations to evaluation the model, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
+| `network`                        | Types of deep neural nets, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
+| `dataset`                  | Datasets use for training, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
+| `model-dir`                       | Directory to save model checkpoints for evaluation, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
