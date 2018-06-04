@@ -20,8 +20,6 @@ Tested stable depdencises:
 We highly recommend installing an [Anaconda](https://www.continuum.io/downloads) environment.
 You will get a high-quality BLAS library (MKL) and you get a controlled compiler version regardless of your Linux distro.
 
-Once you have [Anaconda](https://www.continuum.io/downloads) installed, here are the instructions.
-
 We provide [this script](https://github.com/hwang595/Draco/blob/master/tools/pre_run.sh) to help you with building all dependencies. To do that you can run:
 ```
 bash ./tools/pre_run.sh
