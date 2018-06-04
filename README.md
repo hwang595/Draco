@@ -145,4 +145,4 @@ Evaluation arguments are listed as following:
 Those are potential directions we are actively working on, stay tuned!
 * Reduce the computational cost of Draco by only approximately recovering the desired gradient summation.
 * Explore other coding methods that achieve the same redundancy and computation lower bounds.
-* Move Draco to state-of-the-art PS (or distributed) frameworks e.g. Ray or TensorFlow.
+* Move Draco to state-of-the-art PS (or distributed) frameworks e.g. [Ray](https://rise.cs.berkeley.edu/projects/ray/) or [TensorFlow](https://www.tensorflow.org/).
