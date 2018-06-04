@@ -140,3 +140,9 @@ Evaluation arguments are listed as following:
 | `network`                        | Types of deep neural nets, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
 | `dataset`                  | Datasets use for training, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
 | `model-dir`                       | Directory to save model checkpoints for evaluation, should be set to the same value as [run_pytorch.sh](https://github.com/hwang595/ps_pytorch/blob/master/src/run_pytorch.sh). |
+
+## Future Work
+Those are potential directions we are actively working on, stay tuned!
+* Reduce the computational cost of Draco by only approximately recovering the desired gradient summation.
+* Explore other coding methods that achieve the same redundancy and computation lower bounds.
+* Move Draco to state-of-the-art PS (or distributed) frameworks e.g. Ray or TensorFlow.
