@@ -144,3 +144,16 @@ Those are potential directions we are actively working on, stay tuned!
 * Reduce the computational cost of Draco by only approximately recovering the desired gradient summation.
 * Explore other coding methods that achieve the same redundancy and computation lower bounds.
 * Move Draco to state-of-the-art PS (or distributed) frameworks e.g. [Ray](https://rise.cs.berkeley.edu/projects/ray/) or [TensorFlow](https://www.tensorflow.org/).
+
+## Citation
+
+```
+@inproceedings{Draco,
+  author = {Lingjiao Chen and Hongyi Wang and Zachary Charles and Dimitris Papailiopoulos},
+  title = {DRACO: Byzantine-resilient Distributed Training via Redundant Gradients},
+  booktitle = {Proceedings of the 35th International Conference on Machine Learning, {ICML} 2018},
+  year = {2018},
+  month = jul,
+  url = {https://arxiv.org/abs/1803.09877},
+}
+```
