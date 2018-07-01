@@ -160,7 +160,6 @@ class CyclicMaster(SyncReplicasMaster_NN):
         estimation = np.dot(self._estimator, self._poly_a)
 
         err_indices = [i for i, elem in enumerate(estimation) if (np.absolute(elem.real) > 1e-9 or np.absolute(elem.imag) > 1e-9)]
-        err_indices = [i for i in range(self.s, self.num_workers)]
 
         recover=self._C_1.take(err_indices, axis=0).take(np.arange(self.num_workers-2*self.s),axis=0)
 
