@@ -6,7 +6,6 @@ import threading
 import argparse
 import time
 
-import numpy as np
 from mpi4py import MPI
 
 import torch
@@ -17,8 +16,6 @@ import torch.nn.functional as F
 from nn_ops import NN_Trainer, accuracy
 from data_loader_ops.my_data_loader import DataLoader
 
-from master import baseline_master, rep_master, cyclic_master
-from worker import baseline_worker, rep_worker, cyclic_worker
 from coding import search_w
 from util import *
 
@@ -52,15 +49,13 @@ def add_fit_args(parser):
     parser.add_argument('--mode', type=str, default='normal', metavar='N',
                         help='determine if we use normal averaged gradients or geometric median (in normal mode)\
                          or whether we use normal/majority vote in coded mode to udpate the model')
-    parser.add_argument('--kill-threshold', type=float, default=7.0, metavar='KT',
-                        help='timeout threshold which triggers the killing process (default: 7s)')
     parser.add_argument('--dataset', type=str, default='MNIST', metavar='N',
                         help='which dataset used in training, MNIST and Cifar10 supported currently')
     parser.add_argument('--comm-type', type=str, default='Bcast', metavar='N',
                         help='which kind of method we use during the mode fetching stage')
     parser.add_argument('--err-mode', type=str, default='rev_grad', metavar='N',
                         help='which type of byzantine err we are going to simulate rev_grad/constant/random are supported')
-    parser.add_argument('--coding-method', type=str, default='maj_vote', metavar='N',
+    parser.add_argument('--approach', type=str, default='maj_vote', metavar='N',
                         help='method used to achieve byzantine tolerence, currently majority vote is supported set to normal will return to normal mode')
     parser.add_argument('--num-aggregate', type=int, default=5, metavar='N',
                         help='how many number of gradients we wish to gather at each iteration')
@@ -88,41 +83,9 @@ if __name__ == "__main__":
 
     args = add_fit_args(argparse.ArgumentParser(description='Draco'))
 
-    if args.coding_method == "baseline":
-        train_loader, _, test_loader = load_data(dataset=args.dataset, seed=None, args=args)
-        kwargs_master = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'max_steps':args.max_steps, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'kill_threshold': args.num_aggregate, 
-                    'timeout_threshold':args.kill_threshold,
-                    'worker_fail':args.worker_fail,
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir, 
-                    'update_mode':args.mode, 
-                    'compress_grad':args.compress_grad, 
-                    'checkpoint_step':args.checkpoint_step
-                    }
-        kwargs_worker = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'kill_threshold':args.kill_threshold, 
-                    'adversery':args.adversarial, 
-                    'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 
-                    'compress_grad':args.compress_grad, 
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir, 
-                    'checkpoint_step':args.checkpoint_step
-                    }
+    datum, kwargs_master, kwargs_worker = prepare(args, rank, world_size)
+    if args.approach == "baseline":
+        train_loader, _, test_loader = datum
         if rank == 0:
             master_fc_nn = baseline_master.SyncReplicasMaster_NN(comm=comm, **kwargs_master)
             master_fc_nn.build_model()
@@ -136,43 +99,8 @@ if __name__ == "__main__":
             worker_fc_nn.train(train_loader=train_loader, test_loader=test_loader)
             print("Now the next step is: {}".format(worker_fc_nn.next_step))
     # majority vote
-    elif args.coding_method == "maj_vote":
-        group_list, group_num, group_seeds=group_assign(world_size-1, args.group_size, rank)
-        kwargs_master = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'max_steps':args.max_steps, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'kill_threshold': args.num_aggregate, 
-                    'timeout_threshold':args.kill_threshold,
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir, 
-                    'group_list':group_list, 
-                    'update_mode':args.mode, 
-                    'compress_grad':args.compress_grad, 
-                    'checkpoint_step':args.checkpoint_step
-                    }
-        kwargs_worker = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'kill_threshold':args.kill_threshold, 
-                    'adversery':args.adversarial, 
-                    'worker_fail':args.worker_fail,
-                    'err_mode':args.err_mode, 
-                    'group_list':group_list, 
-                    'group_seeds':group_seeds, 
-                    'group_num':group_num,
-                    'compress_grad':args.compress_grad, 
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir
-                    }
+    elif args.approach == "maj_vote":
+        train_loader, _, test_loader = datum
         if rank == 0:
             coded_master = rep_master.CodedMaster(comm=comm, **kwargs_master)
             coded_master.build_model()
@@ -180,49 +108,17 @@ if __name__ == "__main__":
             coded_master.start()
             print("Done sending messages to workers!")
         else:
-            train_loader, _, test_loader = load_data(dataset=args.dataset, seed=group_seeds[group_num], args=args)
             coded_worker = rep_worker.CodedWorker(comm=comm, **kwargs_worker)
             coded_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(coded_worker.rank, coded_worker.world_size-1, coded_worker.next_step))
             coded_worker.train(train_loader=train_loader, test_loader=test_loader)
             print("Now the next step is: {}".format(coded_worker.next_step))
     # cyclic code
-    elif args.coding_method == "cyclic":
+    elif args.approach == "cyclic":
         W, fake_W, W_perp, S, C_1 = search_w(world_size-1, args.worker_fail)
         # for debug print
         #np.set_printoptions(precision=4,linewidth=200.0)
-        kwargs_master = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'max_steps':args.max_steps, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir, 
-                    'compress_grad':args.compress_grad, 
-                    'W_perp':W_perp, 'W':W, 
-                    'worker_fail':args.worker_fail,
-                    'decoding_S':S, 'C_1':C_1
-                    }
-        kwargs_worker = {
-                    'batch_size':args.batch_size, 
-                    'learning_rate':args.lr, 
-                    'max_epochs':args.epochs, 
-                    'momentum':args.momentum, 
-                    'network':args.network,
-                    'comm_method':args.comm_type, 
-                    'adversery':args.adversarial, 
-                    'worker_fail':args.worker_fail, 
-                    'err_mode':args.err_mode, 
-                    'compress_grad':args.compress_grad,
-                    'encoding_matrix':W, 
-                    'seed':SEED_, 
-                    'fake_W':fake_W, 
-                    'eval_freq':args.eval_freq, 
-                    'train_dir':args.train_dir
-                    }
+        _, training_set, test_loader = datum
         if rank == 0:
             cyclic_master = cyclic_master.CyclicMaster(comm=comm, **kwargs_master)
             cyclic_master.build_model()
@@ -230,9 +126,8 @@ if __name__ == "__main__":
             cyclic_master.start()
             print("Done sending messages to workers!")
         else:
-            _, training_set, test_loader = load_data(dataset=args.dataset, seed=SEED_, args=args)
             cyclic_worker = cyclic_worker.CyclicWorker(comm=comm, **kwargs_worker)
             cyclic_worker.build_model()
             print("I am worker: {} in all {} workers, next step: {}".format(cyclic_worker.rank, cyclic_worker.world_size-1, cyclic_worker.next_step))
             cyclic_worker.train(training_set=training_set, test_loader=test_loader)
-            rint("Now the next step is: {}".format(coded_worker.next_step))
+            print("Now the next step is: {}".format(cyclic_worker.next_step))

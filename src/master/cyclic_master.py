@@ -77,7 +77,7 @@ class CyclicMaster(SyncReplicasMaster_NN):
         # we still need to make sure value fetched from ps is 1
         self.async_bcast_step()
         # fake test here:
-        for i in range(1, self._max_steps):
+        for i in range(1, self._max_steps+1):
             # switch back to training mode
             self.network.train()
             self._first_grad_received = False

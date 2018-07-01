@@ -28,11 +28,15 @@ class CyclicWorker(DistributedWorker):
         self._eval_freq = kwargs['eval_freq']
         self._hat_s = int(2*self._num_fail+1)
         self._err_mode = kwargs['err_mode']
-        # this one is going to be used to avoid fetch the weights for multiple times
-        # randomly generate fail worker index
+        self._max_steps = kwargs['max_steps']
+        self._fail_workers = kwargs['adversaries']
+
+        # only for test
+        # this one is going to be used to avoid fetch the weights for multiple times randomly generate fail worker index
         #self._fail_workers = np.random.choice(np.arange(1, self.num_workers+1), size=self._num_fail, replace=False)
-        self._fail_workers = np.arange(1, self._num_fail+1)
+        #self._fail_workers = np.arange(1, self._num_fail+1)
         #self._fail_workers = []
+        
         self._layer_cur_step = []
         self._checkpoint_step = 0
 
@@ -93,6 +97,9 @@ class CyclicWorker(DistributedWorker):
                 batch_idx += 1
                 grad_collector = {}
                 _precision_counter = 0
+                # worker exit task
+                if self.cur_step == self._max_steps:
+                    break
                 # iteration start here:
                 while True:
                     # the worker shouldn't know the current global step except received the message from parameter server
@@ -173,7 +180,7 @@ class CyclicWorker(DistributedWorker):
             # send grad to master
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
-            if self.rank in self._fail_workers:
+            if self.rank in self._fail_workers[self.cur_step]:
                 simulation_grad = err_simulation(aggregated_grad, self._err_mode, cyclic=True)
                 _compressed_grad = compress(simulation_grad)
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)

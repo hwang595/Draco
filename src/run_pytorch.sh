@@ -6,13 +6,12 @@ python distributed_nn.py \
 --dataset=MNIST \
 --batch-size=4 \
 --comm-type=Bcast \
---num-aggregate=7 \
 --mode=maj_vote \
---coding-method=cyclic \
+--approach=cyclic \
 --eval-freq=2000 \
---epochs=50 \
 --err-mode=constant \
 --adversarial=-100 \
+--epochs=50 \
 --max-steps=1000000 \
 --worker-fail=2 \
 --group-size=3 \

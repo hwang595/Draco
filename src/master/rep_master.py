@@ -11,7 +11,6 @@ class CodedMaster(SyncReplicasMaster_NN):
         self.momentum = kwargs['momentum']
         self.network_config = kwargs['network']
         self.comm_type = kwargs['comm_method']
-        self._timeout_threshold = kwargs['timeout_threshold']
 
         self._num_grad_to_collect = self.world_size - 1
         # used to aggregate tmp gradients, the length is the same as # of fc layer 
@@ -21,7 +20,6 @@ class CodedMaster(SyncReplicasMaster_NN):
         self._first_grad_received = False
         self._eval_freq = kwargs['eval_freq']
         self._train_dir = kwargs['train_dir']
-        self._expected_grad_to_recv = kwargs['kill_threshold']
         self._update_mode = kwargs['update_mode']
         self._max_steps = kwargs['max_steps']
         self._group_list = kwargs['group_list']
@@ -68,7 +66,7 @@ class CodedMaster(SyncReplicasMaster_NN):
         self.async_bcast_step()
 
         # fake test here:
-        for i in range(1, self._max_steps):
+        for i in range(1, self._max_steps+1):
             # switch back to training mode
             self.network.train()
             self._first_grad_received = False

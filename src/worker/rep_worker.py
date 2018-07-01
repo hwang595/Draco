@@ -16,19 +16,21 @@ class CodedWorker(DistributedWorker):
         self.lr = kwargs['learning_rate']
         self.network_config = kwargs['network']
         self.comm_type = kwargs['comm_method']
-        self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
         self._group_list = kwargs['group_list']
         self._train_dir = kwargs['train_dir']
         self._eval_freq = kwargs['eval_freq']
+        self._max_steps = kwargs['max_steps']
 
-        if kwargs['worker_fail'] % len(self._group_list) == 0:
-            _fail_per_group = kwargs['worker_fail'] / len(self._group_list)
-            self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1)]
-        elif kwargs['worker_fail'] <= len(self._group_list):
-            _fail_per_group = 1
-            self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1) if i < kwargs['worker_fail']]
+        # only for test
+        #if kwargs['worker_fail'] % len(self._group_list) == 0:
+        #    _fail_per_group = kwargs['worker_fail'] / len(self._group_list)
+        #    self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1)]
+        #elif kwargs['worker_fail'] <= len(self._group_list):
+        #    _fail_per_group = 1
+        #    self._fail_workers = [g[len(g)-i] for _,g in self._group_list.iteritems() for i in range(1,_fail_per_group+1) if i < kwargs['worker_fail']]
+        self._fail_workers = kwargs['adversaries']
 
         self._group_seeds = kwargs['group_seeds'] 
         self._group_num = kwargs['group_num'] # which group this worker belongs to
@@ -86,6 +88,9 @@ class CodedWorker(DistributedWorker):
             # after each epoch we need to make sure workers in the same group re-shuffling using the same seed
             torch.manual_seed(self._group_seeds[self._group_num]+num_epoch)
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
+                # worker exit task
+                if self.cur_step == self._max_steps:
+                    break
                 X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
                 while True:
                     # the worker shouldn't know the current global step except received the message from parameter server
@@ -154,7 +159,7 @@ class CodedWorker(DistributedWorker):
         for i, grad in enumerate(reversed(grads)):
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
-            if self.rank in self._fail_workers:
+            if self.rank in self._fail_workers[self.cur_step]:
                 simulation_grad = err_simulation(grad, self._err_mode)
                 if self._compress_grad=='compress':
                     _compressed_grad = compress(simulation_grad)

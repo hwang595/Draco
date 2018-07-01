@@ -13,7 +13,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
         self.momentum = kwargs['momentum']
         self.network_config = kwargs['network']
         self.comm_type = kwargs['comm_method']
-        self._timeout_threshold = kwargs['timeout_threshold']
 
         self._num_grad_to_collect = self.world_size - 1
         # used to aggregate tmp gradients, the length is the same as # of fc layer 
@@ -22,7 +21,6 @@ class SyncReplicasMaster_NN(NN_Trainer):
         self._first_grad_received = False
         self._eval_freq = kwargs['eval_freq']
         self._train_dir = kwargs['train_dir']
-        self._expected_grad_to_recv = kwargs['kill_threshold']
         self._max_steps = kwargs['max_steps']
         self._update_mode = kwargs['update_mode']
         self._compress_grad = kwargs['compress_grad']
@@ -70,7 +68,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
         self.async_bcast_step()
 
         # fake test here:
-        for i in range(1, self._max_steps):
+        for i in range(1, self._max_steps+1):
             # switch back to training mode
             self.network.train()
             self._first_grad_received = False
@@ -268,7 +266,7 @@ class SyncReplicasMaster_NN(NN_Trainer):
 
     def _avg_received_grads(self):
         for i in range(len(self._grad_aggregate_buffer)):
-            self._grad_aggregate_buffer[i] /= self._expected_grad_to_recv
+            self._grad_aggregate_buffer[i] /= self._num_grad_to_collect
 
     def _get_geo_median(self):
         geo_median_start = time.time()

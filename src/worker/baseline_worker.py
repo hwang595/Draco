@@ -14,14 +14,17 @@ class DistributedWorker(NN_Trainer):
         self.lr = kwargs['learning_rate']
         self.network_config = kwargs['network']
         self.comm_type = kwargs['comm_method']
-        self.kill_threshold = kwargs['kill_threshold']
         self._adversery = kwargs['adversery']
         self._err_mode = kwargs['err_mode']
         self._compress_grad = kwargs['compress_grad']
         self._eval_freq = kwargs['eval_freq']
         self._train_dir = kwargs['train_dir']
-        self._checkpoint_step = kwargs['checkpoint_step']        
-        self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
+        self._checkpoint_step = kwargs['checkpoint_step']
+        self._max_steps = kwargs['max_steps']
+
+        # only for test      
+        #self._fail_workers = [self.world_size-i for i in range(1, kwargs['worker_fail']+1)]
+        self._fail_workers = kwargs['adversaries']
 
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
@@ -87,6 +90,9 @@ class DistributedWorker(NN_Trainer):
         # start the training process
         for num_epoch in range(self.max_epochs):
             for batch_idx, (train_image_batch, train_label_batch) in enumerate(train_loader):
+                # worker exit task
+                if self.cur_step == self._max_steps:
+                    break
                 X_batch, y_batch = Variable(train_image_batch), Variable(train_label_batch)
                 while True:
                     # the worker shouldn't know the current global step
@@ -255,7 +261,7 @@ class DistributedWorker(NN_Trainer):
             grad = param.grad.data.numpy().astype(np.float64)
             if len(req_send_check) != 0:
                 req_send_check[-1].wait()
-            if self.rank in self._fail_workers:
+            if self.rank in self._fail_workers[self.cur_step]:
                 simulation_grad = err_simulation(grad, self._err_mode)
                 _compressed_grad = compress(simulation_grad)
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+param_index)

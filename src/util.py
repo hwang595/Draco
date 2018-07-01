@@ -1,5 +1,6 @@
 import random
 
+import numpy as np
 from torchvision import datasets, transforms
 
 from model_ops.lenet import LeNet, LeNetSplit
@@ -9,10 +10,15 @@ from model_ops.vgg import *
 from model_ops.fc_nn import FC_NN, FC_NN_Split
 from model_ops.utils import err_simulation
 
+from coding import search_w
+from master import baseline_master, rep_master, cyclic_master
+from worker import baseline_worker, rep_worker, cyclic_worker
+
 SEED_ = 428
 
 def build_model(model_name):
     pass
+
 
 def load_data(dataset, seed, args):
     if seed:
@@ -89,3 +95,130 @@ def _assign(world_size, group_size, rank):
     for i, l in enumerate(group_list):
         ret_group_dict[i]=l
     return ret_group_dict, group_list
+
+
+def _generate_adversarial_nodes(args, world_size):
+    # generate indices of adversarial compute nodes randomly at each iteration
+    np.random.seed(SEED_)
+    return [np.random.choice(np.arange(1, world_size), size=args.worker_fail, replace=False) for _ in range(args.max_steps+1)]
+
+
+def prepare(args, rank, world_size):
+    if args.approach == "baseline":
+        # randomly select adversarial nodes
+        adversaries = _generate_adversarial_nodes(args, world_size)
+        train_loader, training_set, test_loader = load_data(dataset=args.dataset, seed=None, args=args)
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'worker_fail':args.worker_fail,
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'update_mode':args.mode, 
+                    'compress_grad':args.compress_grad, 
+                    'checkpoint_step':args.checkpoint_step
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps,
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode, 
+                    'compress_grad':args.compress_grad, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'checkpoint_step':args.checkpoint_step,
+                    'adversaries':adversaries
+                    }
+    # majority vote
+    elif args.approach == "maj_vote":
+        adversaries = _generate_adversarial_nodes(args, world_size)
+        group_list, group_num, group_seeds=group_assign(world_size-1, args.group_size, rank)
+        train_loader, training_set, test_loader = load_data(dataset=args.dataset, seed=group_seeds[group_num], args=args)
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'group_list':group_list, 
+                    'update_mode':args.mode, 
+                    'compress_grad':args.compress_grad, 
+                    'checkpoint_step':args.checkpoint_step
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps,
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail,
+                    'err_mode':args.err_mode, 
+                    'group_list':group_list, 
+                    'group_seeds':group_seeds, 
+                    'group_num':group_num,
+                    'compress_grad':args.compress_grad, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir,
+                    'adversaries':adversaries
+                    }
+    # cyclic code
+    elif args.approach == "cyclic":
+        adversaries = _generate_adversarial_nodes(args, world_size)
+        W, fake_W, W_perp, S, C_1 = search_w(world_size-1, args.worker_fail)
+        train_loader, training_set, test_loader = load_data(dataset=args.dataset, seed=SEED_, args=args)
+        # for debug print
+        #np.set_printoptions(precision=4,linewidth=200.0)
+        kwargs_master = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps, 
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir, 
+                    'compress_grad':args.compress_grad, 
+                    'W_perp':W_perp, 'W':W, 
+                    'worker_fail':args.worker_fail,
+                    'decoding_S':S, 'C_1':C_1
+                    }
+        kwargs_worker = {
+                    'batch_size':args.batch_size, 
+                    'learning_rate':args.lr, 
+                    'max_epochs':args.epochs, 
+                    'max_steps':args.max_steps,
+                    'momentum':args.momentum, 
+                    'network':args.network,
+                    'comm_method':args.comm_type, 
+                    'adversery':args.adversarial, 
+                    'worker_fail':args.worker_fail, 
+                    'err_mode':args.err_mode, 
+                    'compress_grad':args.compress_grad,
+                    'encoding_matrix':W, 
+                    'seed':SEED_, 
+                    'fake_W':fake_W, 
+                    'eval_freq':args.eval_freq, 
+                    'train_dir':args.train_dir,
+                    'adversaries':adversaries
+                    }
+    datum = (train_loader, training_set, test_loader)
+    return datum, kwargs_master, kwargs_worker
