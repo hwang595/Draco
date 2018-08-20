@@ -45,9 +45,10 @@ class CyclicWorker(DistributedWorker):
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18()
+            #self.network=ResNetSplit18()
+            self.network=ResNet18()
         elif self.network_config == "ResNet34":
-            self.network=ResNetSplit34()
+            self.network=ResNet34()
         elif self.network_config == "ResNet50":
             self.network=ResNetSplit50()
         elif self.network_config == "FC":
@@ -58,8 +59,6 @@ class CyclicWorker(DistributedWorker):
         self.criterion = nn.CrossEntropyLoss()
         # assign a buffer for receiving models from parameter server
         self.init_recv_buf()
-        #self._param_idx = len(self.network.full_modules)*2-1
-        self._param_idx = self.network.fetch_init_channel_index-1
 
     def train(self, training_set, test_loader):
         # the first step we need to do here is to sync fetch the inital worl_step from the parameter server
@@ -131,20 +130,19 @@ class CyclicWorker(DistributedWorker):
                         self.optimizer.zero_grad()
                         # forward step
                         logits = self.network(X_batch)
-                        logits_1 = Variable(logits.data, requires_grad=True)
-                        loss = self.criterion(logits_1, y_batch)
+                        loss = self.criterion(logits, y_batch)
 
                         # backward step
                         backward_start_time = time.time()
                         loss.backward()
 
-                        init_grad_data = logits_1.grad.data.numpy()
-                        init_grad_data = np.sum(init_grad_data, axis=0).astype(np.float64)
-                        grads=self.network.backward_coded(logits_1.grad, self.cur_step)
-                        # debug settings for resnet
-                        if "ResNet" in self.network_config:
-                            grads.insert(0,init_grad_data)
-                        # gather each batch calculated by this worker
+                        tempt_grads = []
+                        for p_i, p in enumerate(self.network.parameters()):
+                            tempt_grads.append(p.grad.data.numpy())
+                        grads = []
+                        for g_i, g in enumerate(reversed(tempt_grads)):
+                            grads.append(g)
+
                         grad_collector[_batch_bias/self.batch_size] = grads
                         _prec1, _ = accuracy(logits.data, train_label_batch.long(), topk=(1, 5))
                         _precision_counter += _prec1.numpy()[0]
@@ -182,11 +180,11 @@ class CyclicWorker(DistributedWorker):
                 req_send_check[-1].wait()
             if self.rank in self._fail_workers[self.cur_step]:
                 simulation_grad = err_simulation(aggregated_grad, self._err_mode, cyclic=True)
-                _compressed_grad = compress(simulation_grad)
+                _compressed_grad = compress(simulation_grad.astype(np.complex64))
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
                 req_send_check.append(req_isend)
             else:
-                _compressed_grad = compress(aggregated_grad)
+                _compressed_grad = compress(aggregated_grad.astype(np.complex64))
                 req_isend = self.comm.isend(_compressed_grad, dest=0, tag=88+i)
                 req_send_check.append(req_isend)
             comm_counter += (time.time() - tmp_comm_start)
