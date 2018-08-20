@@ -45,9 +45,9 @@ class CyclicMaster(SyncReplicasMaster_NN):
         if self.network_config == "LeNet":
             self.network=LeNetSplit()
         elif self.network_config == "ResNet18":
-            self.network=ResNetSplit18()
+            self.network=ResNet18()
         elif self.network_config == "ResNet34":
-            self.network=ResNetSplit34()
+            self.network=ResNet34()
         elif self.network_config == "FC":
             self.network=FC_NN_Split()
 
