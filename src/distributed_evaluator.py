@@ -19,6 +19,9 @@ from torch.utils.data import DataLoader
 #for tmp solution
 from datasets import MNISTDataset
 from datasets import Cifar10Dataset
+from model_ops.lenet import LeNet, LeNetSplit
+from model_ops.resnet import *
+from model_ops.resnet_split import *
 
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
@@ -48,6 +51,8 @@ def add_fit_args(parser):
                         help='directory to save the temp model during the training process for evaluation')
     parser.add_argument('--dataset', type=str, default='MNIST', metavar='N',
                         help='which dataset used in training, MNIST and Cifar10 supported currently')
+    parser.add_argument('--network', type=str, default='LeNet', metavar='N',
+                        help='which kind of network we are going to use, support LeNet and ResNet currently')
     args = parser.parse_args()
     return args
 
@@ -63,6 +68,7 @@ class DistributedEvaluator(NN_Trainer):
         self._model_dir = kwargs['model_dir']
         self._eval_freq = int(kwargs['eval_freq'])
         self._eval_batch_size = kwargs['eval_batch_size']
+        self.network_config = kwargs['network']
         # this one is going to be used to avoid fetch the weights for multiple times
         self._layer_cur_step = []
 
@@ -103,10 +109,27 @@ class DistributedEvaluator(NN_Trainer):
         test_loss /= len(test_loader.dataset)
         print('Test set: Average loss: {:.4f}, Prec@1: {} Prec@5: {}'.format(test_loss, prec1, prec5))
 
+    '''
     def _load_model(self, file_path):
         with open(file_path, "rb") as f_:
             self.network = torch.load(f_)
         return self.network
+    '''
+
+    def _load_model(self, file_path):
+        #self.network = build_model(self.network_config, num_classes=10)
+        # build network
+        if self.network_config == "LeNet":
+            self.network=LeNet()
+        elif self.network_config == "ResNet18":
+            self.network=ResNet18(num_classes=num_classes)
+        elif self.network_config == "ResNet34":
+            self.network=ResNet34(num_classes=num_classes)
+        elif self.network_config == "FC":
+            self.network=FC_NN()
+
+        with open(file_path, "rb") as f_:
+            self.network.load_state_dict(torch.load(f_))
 
     def _model_dir_generator(self, next_step_to_fetch):
         return self._model_dir+"model_step_"+str(next_step_to_fetch)
@@ -128,7 +151,8 @@ if __name__ == "__main__":
                        transforms.ToTensor()
                    ])), batch_size=args.eval_batch_size, shuffle=True)
     
-    kwargs_evaluator={'model_dir':args.model_dir, 'eval_freq':args.eval_freq, 'eval_batch_size':args.eval_batch_size}
+    kwargs_evaluator={'model_dir':args.model_dir, 'eval_freq':args.eval_freq, 
+                    'eval_batch_size':args.eval_batch_size, 'network':args.network}
     evaluator_nn = DistributedEvaluator(**kwargs_evaluator)
     evaluator_nn.evaluate(validation_loader=test_loader)
     print("I am worker: {} in all {} workers".format(worker_fc_nn.rank, worker_fc_nn.world_size))
